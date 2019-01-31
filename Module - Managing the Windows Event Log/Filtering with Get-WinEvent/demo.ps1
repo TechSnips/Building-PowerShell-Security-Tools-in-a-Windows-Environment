@@ -1,0 +1,1 @@
+Compare speed of remote queries for Get-WinEvent and Get-EventLog
