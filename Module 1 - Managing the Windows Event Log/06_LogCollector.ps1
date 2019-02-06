@@ -56,6 +56,7 @@ $Computers | ForEach-Object {
 
     Write-Host "Writing Log Entries to Text File"
     $Results |
-        Select-Object TimeCreated, ProviderName, Id, Message, LogName |
-        Out-File -FilePath $OutputFilePath -Append -Force
+       Select-Object TimeCreated, ProviderName, Id, Message, LogName |
+       Format-Table -Wrap -Property TimeCreated, ProviderName, Id, Message, LogName -Autosize |
+       Out-File -FilePath $OutputFilePath -Force -Append
 }
