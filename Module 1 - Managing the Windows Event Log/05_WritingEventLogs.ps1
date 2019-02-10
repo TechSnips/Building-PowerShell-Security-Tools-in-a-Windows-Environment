@@ -28,10 +28,6 @@ Write-EventLog @Params
 Get-EventLog -LogName 'Application' | Where Source -EQ 'MyApplication' | Select -ExpandProperty Message
 #endregion
 
-#region Get Event Sources
-Get-WinEvent -ListProvider *
-#endregion
-
 Function Write-Log {
 	[OutputType([void])]
 	[CmdletBinding(
@@ -137,3 +133,9 @@ Function Write-Log {
 		}
 	}
 }
+
+## Writing an error
+Write-Log -LogName 'MyCustomApplication' -EventId 1 -EntryType 'Error' -Message 'Oh noes!!!!!'
+
+## Writing information
+Write-Log -LogName 'MyCustomApplication' -EventId 2 -Message 'Just another day in paradise'

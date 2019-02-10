@@ -38,10 +38,6 @@ $query = @"
 
 Get-WinEvent -FilterXML $query
 
-#region Notice XML query in verbose output
-
-#endregion
-
 # FilterXPath
 Get-WinEvent -LogName "System" -FilterXPath "*[System[Provider[@Name='disk']]]"
 #endregion
