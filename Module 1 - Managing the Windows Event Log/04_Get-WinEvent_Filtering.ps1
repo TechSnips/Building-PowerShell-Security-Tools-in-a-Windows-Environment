@@ -17,9 +17,9 @@ Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = 'Disk' }
 #region By Time
 Get-WinEvent -FilterHashtable @{ LogName = 'Microsoft-Windows-PowerShell/Operational'; StartTime = '02/05/2019' }
 Get-WinEvent -FilterHashtable @{
-    LogName   = 'Microsoft-Windows-PowerShell/Operational'
-    StartTime = '02/01/2019'
-    EndTime   = '02/02/2019'
+	LogName   = 'Microsoft-Windows-PowerShell/Operational'
+	StartTime = '02/01/2019'
+	EndTime   = '02/02/2019'
 }
 #endregion
 
@@ -37,6 +37,10 @@ $query = @"
 "@
 
 Get-WinEvent -FilterXML $query
+
+#region Notice XML query in verbose output
+
+#endregion
 
 # FilterXPath
 Get-WinEvent -LogName "System" -FilterXPath "*[System[Provider[@Name='disk']]]"

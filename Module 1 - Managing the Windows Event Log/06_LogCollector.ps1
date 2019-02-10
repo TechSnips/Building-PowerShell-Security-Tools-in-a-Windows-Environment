@@ -1,61 +1,65 @@
-$Computers = @(
-    'DC'
-)
+#region Querying events on a remote computer by timeframe
+$remoteComputer = 'DC'
+$startTime = (Get-Date).AddDays(-1)
+$endTime = Get-Date
+$logNames = (Get-WinEvent -ListLog * -ComputerName $remoteComputer).LogName
 
-$Logs = @(
-    "Application"
-    "System"
-)
-
-# Specify Start and End Dates to Retrieve Event Logs
-$StartTimestamp = Get-Date "02-01-2019 00:00:00" -Format "MM-dd-yyyy"
-$EndTimeStamp   = Get-Date -Format "MM-dd-yyyy"
-
-# The Output Text File
-$OutputFilePath = "$($Env:USERPROFILE)\Desktop\EventLogs.txt"
-
-$Computers | ForEach-Object {
-    $Computer = $_
-
-    If (-Not $Logs) {
-        Write-Host "Retrieving All Log Entries on $Computer"
-        $AllLogs = Get-WinEvent -ListLog * -ComputerName $Computer
-
-        $AllLogs | Foreach-Object {
-            $LogName = $_
-            $Results = @()
-
-            If ($StartTimestamp -And $EndTimeStamp) {
-                $Results += Get-WinEvent -ComputerName $Computer -FilterHashtable @{
-                    'LogName'   = $LogName
-                    'StartTime' = $StartTimestamp
-	                'EndTime'   = $EndTimeStamp
-                }
-            } Else {
-                $Results = Get-WinEvent -LogName $LogName  -ComputerName $Computer
-            }
-        }
-    } Else {
-        $Results = @()
-
-        $Logs | Foreach-Object {
-            Write-Host "Retrieving Log Entries for $($_) on $Computer"
-            $LogName = $_
-
-            If ($StartTimestamp -And $EndTimeStamp) {
-                $Results += Get-WinEvent -ComputerName $Computer -FilterHashtable @{
-                    'LogName'   = $LogName
-                    'StartTime' = $StartTimestamp
-	                'EndTime'   = $EndTimeStamp
-                }
-            } Else {
-                $Results += Get-WinEvent -LogName $LogName -ComputerName $Computer
-            }
-        }
-    }
-
-    Write-Host "Writing Log Entries to Text File"
-    $Results |
-        Select-Object TimeCreated, ProviderName, Id, Message, LogName |
-        Out-File -FilePath $OutputFilePath -Append -Force
+$filter = @{ 
+	'LogName'   = 'Security'
+	'StartTime' = $startTime
+	'EndTime'   = $endTime
 }
+Get-WinEvent -ComputerName $remoteComputer -FilterHashtable $filter
+#endregion
+
+#region Function
+function Get-EventsByTimeframe {
+	param(
+		[Parameter(Mandatory)]
+		[ValidateNotNullOrEmpty()]
+		[string[]]$ComputerName,
+        
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[datetime]$StartTime,
+
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[datetime]$EndTime,
+        
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[string[]]$EventLog,
+        
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[string]$OutputFilePath = "$($Env:USERPROFILE)\Desktop\EventLogs.csv"
+	)
+    
+	foreach ($computer in $ComputerName) {
+		if (-not $EventLog) {
+			Write-Verbose -Message "Enumerating all event logs on [$($computer)]..."
+			$logNames = (Get-WinEvent -ListLog * -ComputerName $computer).LogName
+			Write-Verbose -Message "Found [$(@($logNames).Count)] event logs on remote computer."
+		} else {
+			$logNames = $EventLog
+		}
+
+		foreach ($log in $logNames) {
+			$filter = @{'LogName' = $log}
+			if ($StartTime) {
+				$filter.StartTime = $StartTimestamp
+			}
+			if ($EndTime) {
+				$filter.EndTime = $EndTimestamp
+			}
+			$properties = 'TimeCreated', 'ProviderName', 'Id', 'Message', 'LogName'
+			Get-WinEvent -ComputerName $computer -FilterHashtable $filter | Tee-Object -FilePath $OutputFilePath
+		}
+	}
+}
+#endregion
+
+#region Look at the output file
+Import-Csv -Path "$($Env:USERPROFILE)\Desktop\EventLogs.csv"
+#endregion
