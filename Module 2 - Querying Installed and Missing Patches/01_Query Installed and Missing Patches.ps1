@@ -57,6 +57,22 @@ $scriptblock = {
 Invoke-Command -ComputerName 'DC' -ScriptBlock $scriptblock
 #endregion
 
+#region Remotely Trigger Update Detection
+$scriptblock = {
+    $AutoUpdate = New-Object -ComObject 'Microsoft.Update.AutoUpdate'
+    $AutoUpdate.DetectNow()
+}
+
+Invoke-Command -ComputerName 'DC' -ScriptBlock $scriptblock
+
+$scriptblock = {
+    $AutoUpdate = New-Object -ComObject 'Microsoft.Update.AutoUpdate'
+    $AutoUpdate.Results
+}
+
+Invoke-Command -ComputerName 'DC' -ScriptBlock $scriptblock
+#endregion
+
 #region Microsoft Update, Windows Update and WSUS
 # Microsoft Updates (normally the default) is MS product updates and everything in Windows Updates
 # Windows Updates are Service Packs and core dupates but not product updates

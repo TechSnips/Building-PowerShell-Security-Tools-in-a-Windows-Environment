@@ -71,12 +71,16 @@ $Result
 #endregion
 
 #region Parallel Computers
+Get-Job | Remove-Job
+
 $Computers = @(
     'DC'
     'CLIENT2'
+    'WSUS'
+    'CLIENT3'
 )
 
-$Jobs    = @()
+$Jobs = @()
 $Results = @()
 
 $scriptBlock = {
@@ -89,49 +93,107 @@ $scriptBlock = {
 }
 
 $Computers | Foreach-Object {
-    If (Test-Connection -ComputerName $_ -Quiet) {
-        $Name = "$ComputerName - Windows Update Query"
-
-        $Params = @{
-            "ComputerName" = $_
-            "ScriptBlock"  = $scriptBlock
-            "AsJob"        = $true
-            "JobName"      = $Name
-        }
-
-        Try {
-            Invoke-Command @Params
-        } Catch {
-            Throw $_.Exception.Message
-        }
-
-        $Jobs += Get-Job -Name $Name
+    # Not all computers are ICMP ping enabled, but do support PSRemote which is what we need
+    Try {
+        Test-WSMan -ComputerName $_ -ErrorAction Stop | Out-Null
+    } Catch {
+        Return
     }
+
+    $Name = "$($_) - Windows Update Query"
+
+    $Params = @{
+        "ComputerName" = $_
+        "ScriptBlock"  = $scriptBlock
+        "AsJob"        = $true
+        "JobName"      = $Name
+    }
+
+    Try {
+        Invoke-Command @Params
+    } Catch {
+        Throw $_.Exception.Message
+    }
+
+    $Jobs += Get-Job -Name $Name
 }
 
-$Jobs | Wait-Job -Any | Receive-Job | Foreach-Object { $Results += $_ }
+$Jobs | Wait-Job | Receive-Job | Foreach-Object { $Results += $_ }
+
+$Results | Select-Object PSComputerName, Title | Format-Table -AutoSize
 #endregion
 
 #region HTML Report
-$updateSession  = New-Object -ComObject 'Microsoft.Update.Session'
-$updateSearcher = $updateSession.CreateUpdateSearcher()
+Get-Job | Remove-Job
 
-$results = @()
+$Computers = @(
+    'DC'
+    'CLIENT2'
+    'WSUS'
+    'CLIENT3'
+)
+
+$Jobs    = @()
+$Results = @()
 $Path    = "$($Env:USERPROFILE)\Desktop\report.html"
 
-If ($updates = ($updateSearcher.Search($null))) {
-    $updates.Updates | ForEach-Object {
-        $results += [PSCustomObject]@{
+$scriptBlock = {
+    $allUpdates     = @()
+    $updateSession  = New-Object -ComObject 'Microsoft.Update.Session'
+    $updateSearcher = $updateSession.CreateUpdateSearcher()
+
+    If ($updates = ($updateSearcher.Search($Null))) {
+        $allUpdates += $updates.Updates
+    }
+
+    If ($updates = ($updateSearcher.Search('IsInstalled=1'))) {
+        $allUpdates += $updates.Updates
+    }
+
+    $allUpdates
+}
+
+$Computers | Foreach-Object {
+    # Not all computers are ICMP ping enabled, but do support PSRemote which is what we need
+    Try {
+        Test-WSMan -ComputerName $_ -ErrorAction Stop | Out-Null
+    }
+    Catch {
+        Return
+    }
+
+    $Name = "$($_) - Windows Update Query"
+
+    $Params = @{
+        "ComputerName" = $_
+        "ScriptBlock"  = $scriptBlock
+        "AsJob"        = $true
+        "JobName"      = $Name
+    }
+
+    Try {
+        Invoke-Command @Params
+    }
+    Catch {
+        Throw $_.Exception.Message
+    }
+
+    $Jobs += Get-Job -Name $Name
+}
+
+$Jobs | Wait-Job | Receive-Job | Foreach-Object { $Results += $_ }
+
+If ($Results) {
+    $Results | Where-Object IsInstalled -EQ $False | ForEach-Object {
+        $Updates += [PSCustomObject]@{
             "Title"  = $_.Title
             "Date"   = $_.LastDeploymentChangeTime
             "Status" = "Not Installed"
         }
     }
-}
 
-If ($updates2 = ($updateSearcher.Search('IsInstalled=1'))) {
-    $updates2.Updates | ForEach-Object {
-        $results += [PSCustomObject]@{
+    $Results | Where-Object IsInstalled -EQ $True | ForEach-Object {
+        $Updates += [PSCustomObject]@{
             "Title"  = $_.Title
             "Date"   = $_.LastDeploymentChangeTime
             "Status" = "Installed"
