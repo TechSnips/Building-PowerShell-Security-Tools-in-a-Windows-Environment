@@ -68,11 +68,7 @@ function Out-WindowsUpdateReport {
 	(
 		[Parameter()]
 		[ValidateNotNullOrEmpty()]
-		[string]$FilePath,
-
-		[Parameter()]
-		[ValidateNotNullOrEmpty()]
-		[string]$ReportTitle = 'Windows Update Report',
+		[string]$FilePath = '.\WindowsUpdates.html',
         
 		[Parameter(ValueFromPipeline)]
 		[ValidateNotNullOrEmpty()]
@@ -92,9 +88,9 @@ function Out-WindowsUpdateReport {
         <thead>
             <tr>
                 <th>Computer</th>
-                <th>Status</th>
                 <th>Title</th>
-                <th>Release</th>
+                <th>Description</th>
+                <th>IsInstalled</th>
             </tr>
         </thead>
         <tbody>
@@ -102,12 +98,17 @@ function Out-WindowsUpdateReport {
 
 	$body = ""
 	$UpdateResults | ForEach-Object {
-		If ( $_.Status -EQ 'Installed' ) {
+		if ($_.PSComputerName) {
+			$computerName = $_.PSComputerName
+		} else {
+			$computerName = 'Local'
+		}
+		If ($_.IsInstalled) {
 			$class = 'installed'
 		} Else {
 			$class = 'notinstalled'
 		}
-		$body += "`t`t`t<tr class='$class'><td>Local</td><td>$($_.Status)</td><td>$($_.Title)</td><td>$($_.Date)</td></tr>`r`n"
+		$body += "`t`t`t<tr class='$class'><td>$($computerName)</td><td>$($_.Title)</td><td>$($_.Description)</td><td>$($_.IsInstalled)</td></tr>`r`n"
 	}
 
 	$footer = @"
@@ -119,5 +120,5 @@ function Out-WindowsUpdateReport {
 
 	$html = $header + $body + $footer
 
-	$html | Out-File -Path $FilePath -Force
+	$html | Out-File -FilePath $FilePath -Force
 }

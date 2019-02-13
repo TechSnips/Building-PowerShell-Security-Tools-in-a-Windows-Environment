@@ -151,35 +151,14 @@ $Results | Select-Object PSComputerName, Title | Format-Table -AutoSize
 #region Wrap it all up into a function
 
 Function Get-WindowsUpdate {
-	<#
-        .SYNOPSIS
-            This function queries a local or remote computers for Windows patches.
-        .PARAMETER Installed
-            A switch parameter to limit updates returned to only installed updates.
-        .PARAMETER Hidden
-            A switch parameter to limit updates returned to only hidden updates.
-        .PARAMETER Assigned
-            A switch parameter to limit updates returned to only assigned updates.
-        .PARAMETER RebootRequired
-            A switch parameter to limit updates returned to only those that will require a reboot after installation.
-        .PARAMETER ComputerName
-            A string parameter representing a remote computer to query. If this is not provided, this function will query
-            updates on the local computer.
-    
-        .EXAMPLE
-            PS> Get-WindowsUpdate -Installed -Hidden -ComputerName SRV1
-
-            This example will attempt to find all updates that are installed and hidden on the remote SRV1 computer.
-    
-    #>
 	[OutputType([pscustomobject])]
 	[CmdletBinding()]
 
 	Param (
-		[Switch]$Installed,
-		[Switch]$Hidden,
-		[Switch]$Assigned,
-		[Switch]$RebootRequired,
+		[bool]$Installed,
+		[bool]$Hidden,
+		[bool]$Assigned,
+		[bool]$RebootRequired,
 
 		[Parameter(ValueFromPipelineByPropertyName)]
 		[Alias('Name')]
@@ -203,7 +182,7 @@ Function Get-WindowsUpdate {
 		## Build the query string
 		$paramToQueryMap.GetEnumerator() | Foreach-Object {
 			if ($PSBoundParameters.ContainsKey($_.Name)) {
-				$query += '{0}=1' -f $paramToQueryMap[$_.Name]
+				$query += '{0}={1}' -f $paramToQueryMap[$_.Name], [int](Get-Variable -Name $_.Name).Value
 			}
 		}
 
