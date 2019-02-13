@@ -71,6 +71,83 @@ $serviceManager = New-Object -Com 'Microsoft.Update.ServiceManager'
 $serviceManager.Services | Select-Object Name, ISManaged, IsDefaultAUService, ServiceUrl
 #endregion
 
+#region Running as a Job
+$scriptBlock = {
+	$updateSession = New-Object -ComObject 'Microsoft.Update.Session'
+	$updateSearcher = $updateSession.CreateUpdateSearcher()
+
+	If ($updates = ($updateSearcher.Search($Null))) {
+		$updates.Updates
+	}
+}
+
+$Params = @{
+	"ComputerName" = 'DC'
+	"ScriptBlock"  = $scriptBlock
+	"AsJob"        = $true
+	"JobName"      = "$ComputerName - Windows Update Query"
+}
+
+Invoke-Command @Params
+
+$Result = Get-Job | Where-Object Name -Match "Windows Update Query" | Select -Last 1 | Wait-Job | Receive-Job
+
+$Result
+#endregion
+
+#region Parallel Computers
+Get-Job | Remove-Job
+
+$Computers = @(
+	'DC'
+	'CLIENT2'
+	'WSUS'
+	'CLIENT3'
+)
+
+$Jobs = @()
+$Results = @()
+
+$scriptBlock = {
+	$updateSession = New-Object -ComObject 'Microsoft.Update.Session'
+	$updateSearcher = $updateSession.CreateUpdateSearcher()
+
+	If ($updates = ($updateSearcher.Search($Null))) {
+		$updates.Updates
+	}
+}
+
+$Computers | Foreach-Object {
+	# Not all computers are ICMP ping enabled, but do support PSRemote which is what we need
+	Try {
+		Test-WSMan -ComputerName $_ -ErrorAction Stop | Out-Null
+	} Catch {
+		Return
+	}
+
+	$Name = "$($_) - Windows Update Query"
+
+	$Params = @{
+		"ComputerName" = $_
+		"ScriptBlock"  = $scriptBlock
+		"AsJob"        = $true
+		"JobName"      = $Name
+	}
+
+	Try {
+		Invoke-Command @Params
+	} Catch {
+		Throw $_.Exception.Message
+	}
+
+	$Jobs += Get-Job -Name $Name
+}
+
+$Jobs | Wait-Job | Receive-Job | Foreach-Object { $Results += $_ }
+
+$Results | Select-Object PSComputerName, Title | Format-Table -AutoSize
+#endregion
+
 #region Wrap it all up into a function
 
 Function Get-WindowsUpdate {
