@@ -210,7 +210,6 @@ Function Get-WindowsUpdate {
 		$query = $query -Join ' AND '
 
 		try {
-
 			## Create the scriptblock we'll use to pass to the remote computer or run locally
 			$scriptBlock = {
 				param (
@@ -225,17 +224,19 @@ Function Get-WindowsUpdate {
 				$updateSearcher = $updateSession.CreateUpdateSearcher()
 
 				if ($updates = ($updateSearcher.Search($Query))) {
-					$updates.Updates | Select-Object Title, LastDeploymentChangeTime
+					$updates.Updates
 				}
 			}
 
-			if ($PSBoundParameters.ContainsKey('ComputerName')) {
-				Write-Verbose "Query is '$Query'"
-				Invoke-Command -ComputerName $ComputerName -ScriptBlock $scriptBlock -ArgumentList $Query |
-					Select-Object PSComputerName, Title, LastDeploymentChangeTime
-			} else {
-				& $scriptBlock $Query
+			## Run the query
+			$icmParams = @{
+				ScriptBlock  = $scriptBlock
+				ArgumentList = $Query
 			}
+			if ($PSBoundParameters.ContainsKey('ComputerName')) {
+				$icmParams.ComputerName = $ComputerName
+			}
+			Invoke-Command @icmParams
 		} catch {
 			throw $_.Exception.Message
 		}
@@ -247,6 +248,7 @@ Function Get-WindowsUpdate {
 Get-WindowsUpdate
 Get-WindowsUpdate -ComputerName DC
 Get-WindowsUpdate -ComputerName DC -Installed
+Get-WindowsUpdate | Select-Object -Property Title, Description, IsInstalled | Format-List
 
 Import-Csv -Path C:\computers.txt
 

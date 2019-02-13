@@ -1,56 +1,4 @@
-#region Add Error Checking
-# Error Reference
-# https://docs.microsoft.com/en-us/windows/deployment/update/windows-update-error-reference
-Try {
-	$updateSession  = New-Object -ComObject 'Microsoft.Update.Session'
-	$updateSearcher = $updateSession.CreateUpdateSearcher()
-
-	If ($updates = ($updateSearcher.Search($Query))) {
-		$updates.Updates | Select-Object Title, LastDeploymentChangeTime
-	}
-} Catch [System.Runtime.InteropServices.COMException] {
-	Switch ($_.Exception.Message) {
-		{ $_ -Match '0x80244022' } {
-			Throw "The service is temporarily overloaded"
-		}
-		Default {
-			Throw "Unknown Error $($_.Exception.Message)"
-		}
-	}
-} Catch {
-	Throw $_.Exception.Message
-}
-#endregion
-
-#region Error Checking for Remote Computer Availability
-$computerName = 'DC'
-
-$scriptBlock = {
-	$updateSession = New-Object -ComObject 'Microsoft.Update.Session'
-	$updateSearcher = $updateSession.CreateUpdateSearcher()
-
-	If ($updates = ($updateSearcher.Search($Null))) {
-		If ($PassThru) {
-			$updates.Updates
-		} Else {
-			$updates.Updates | Select-Object Title, LastDeploymentChangeTime
-		}
-	}
-}
-
-If ($ComputerName -And (Test-Connection $ComputerName -Quiet) ) {
-	Invoke-Command -ComputerName $ComputerName -ScriptBlock $scriptBlock |
-		Select-Object PSRemoteComputer, Title, LastDeploymentChangeTime
-} Else {
-	Throw "Remote computer, $computerName, is not available"
-}
-#endregion
-
-
-
 #region HTML Report
-Get-Job | Remove-Job
-
 $Computers = @(
 	'DC'
 	'CLIENT2'
@@ -62,21 +10,7 @@ $Jobs    = @()
 $Results = @()
 $Path    = "$($Env:USERPROFILE)\Desktop\report.html"
 
-$scriptBlock = {
-	$allUpdates     = @()
-	$updateSession  = New-Object -ComObject 'Microsoft.Update.Session'
-	$updateSearcher = $updateSession.CreateUpdateSearcher()
 
-	If ($updates = ($updateSearcher.Search($Null))) {
-		$allUpdates += $updates.Updates
-	}
-
-	If ($updates = ($updateSearcher.Search('IsInstalled=1'))) {
-		$allUpdates += $updates.Updates
-	}
-
-	$allUpdates
-}
 
 $Computers | Foreach-Object {
 	# Not all computers are ICMP ping enabled, but do support PSRemote which is what we need
@@ -124,7 +58,30 @@ If ($Results) {
 	}
 }
 
-$header = @"
+
+#endregion
+
+function Out-WindowsUpdateReport {
+	[OutputType('void')]
+	[CmdletBinding()]
+	param
+	(
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[string]$FilePath,
+
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[string]$ReportTitle = 'Windows Update Report',
+        
+		[Parameter(ValueFromPipeline)]
+		[ValidateNotNullOrEmpty()]
+		[pscustomobject[]]$UpdateResults
+	)
+
+	$ErrorActionPreference = 'Stop'
+
+	$header = @"
 <!doctype html>
 <html lang='en'>
 <head>
@@ -134,7 +91,7 @@ $header = @"
     <table class='updates'>
         <thead>
             <tr>
-                <th>System</th>
+                <th>Computer</th>
                 <th>Status</th>
                 <th>Title</th>
                 <th>Release</th>
@@ -143,24 +100,24 @@ $header = @"
         <tbody>
 "@
 
-$body = ""
-$results | ForEach-Object {
-	If ( $_.Status -EQ 'Installed' ) {
-		$class = 'installed'
-	} Else {
-		$class = 'notinstalled'
+	$body = ""
+	$UpdateResults | ForEach-Object {
+		If ( $_.Status -EQ 'Installed' ) {
+			$class = 'installed'
+		} Else {
+			$class = 'notinstalled'
+		}
+		$body += "`t`t`t<tr class='$class'><td>Local</td><td>$($_.Status)</td><td>$($_.Title)</td><td>$($_.Date)</td></tr>`r`n"
 	}
-	$body += "`t`t`t<tr class='$class'><td>Local</td><td>$($_.Status)</td><td>$($_.Title)</td><td>$($_.Date)</td></tr>`r`n"
-}
 
-$footer = @"
+	$footer = @"
         </tbody>
     </table>
 </body>
 </html>
 "@
 
-$html = $header + $body + $footer
+	$html = $header + $body + $footer
 
-$html | Out-File -Path $Path -Force
-#endregion
+	$html | Out-File -Path $FilePath -Force
+}
