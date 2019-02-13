@@ -90,7 +90,50 @@ Function Install-WindowsUpdate {
     )
 
     Process {
+        Try {
+            $scriptBlock = {
+                Param (
+                    $PassThru
+                )
 
+                Write-Verbose "PassThru is '$PassThru'"
+
+                $updateSession  = New-Object -ComObject 'Microsoft.Update.Session'
+                $updateSearcher = $updateSession.CreateUpdateSearcher()
+
+                If ($updates = ($updateSearcher.Search($null))) {
+                    $downloader         = $updateSession.CreateUpdateDownloader()
+                    $downloader.Updates = $updates.updates
+                    $downloadResult     = $downloader.Download()
+
+                    If ($downloadResult.ResultCode -ne 2) {
+                        Exit $downloadResult.ResultCode;
+                    }
+
+                    $installer         = New-Object -ComObject 'Microsoft.Update.Installer'
+                    $installer.Updates = $updates
+                    $installResult     = $installer.Install()
+
+                    If ($installResult.RebootRequired) {
+                        Exit 7
+                    }
+                    Else {
+                        $installResult.ResultCode
+                    }
+                }
+            }
+
+            If ($ComputerName) {
+                Invoke-Command -ComputerName $ComputerName -ScriptBlock $scriptBlock -ArgumentList $PassThru |
+                    Select-Object PSRemoteComputer, Title, LastDeploymentChangeTime
+            }
+            Else {
+                & $scriptBlock $PassThru
+            }
+        }
+        Catch {
+            Throw $_.Exception.Message
+        }
     }
 }
 #endregion
@@ -101,8 +144,6 @@ Function Start-WindowsUpdateDownload {
     [CmdletBinding()]
 
     Param (
-        $Updates,
-
         [Parameter(ValueFromPipeline)]
         [ValidateNotNullOrEmpty()]
         [String]$ComputerName,
@@ -124,8 +165,12 @@ Function Start-WindowsUpdateDownload {
 
                 If ($updates = ($updateSearcher.Search($null))) {
                     $downloader         = $updateSession.CreateUpdateDownloader()
-                    $downloader.Updates = $updates.updates
+                    $downloader.Updates = $Updates.Updates
                     $downloadResult     = $downloader.Download()
+
+                    If ($PassThru) {
+                        $Updates.Updates
+                    }
                 }
             }
 

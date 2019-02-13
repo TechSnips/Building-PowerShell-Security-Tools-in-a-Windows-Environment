@@ -47,11 +47,11 @@ $InstalledUpdates.Updates | Foreach-Object {
 
 #region Get Updates on a Remote Computer (PSRemoting)
 $scriptblock = {
-	$UpdateObjectSession = New-Object -ComObject 'Microsoft.Update.Session'
-	$UpdateSearcher      = $UpdateObjectSession.CreateUpdateSearcher()
+    $UpdateObjectSession = New-Object -ComObject 'Microsoft.Update.Session'
+    $UpdateSearcher      = $UpdateObjectSession.CreateUpdateSearcher()
 
-	$Updates = $UpdateSearcher.Search($null)
-	$Updates.Updates | Select-Object Title, Description, RebootRequired, IsDownloaded, IsHidden
+    $Updates = $UpdateSearcher.Search($null)
+    $Updates.Updates | Select-Object Title, Description, RebootRequired, IsDownloaded, IsHidden
 }
 
 Invoke-Command -ComputerName 'DC' -ScriptBlock $scriptblock
@@ -82,11 +82,11 @@ $serviceManager.Services | Select-Object Name, ISManaged, IsDefaultAUService,Ser
 
 #region Get-WindowsUpdate
 Function Get-WindowsUpdate {
-	[OutputType([System.Management.Automation.PSObject])]
-	[CmdletBinding()]
+    [OutputType([System.Management.Automation.PSObject])]
+    [CmdletBinding()]
 
     Param (
-		[Switch]$Installed,
+        [Switch]$Installed,
         [Switch]$Hidden,
         [Switch]$Assigned,
         [Switch]$RebootRequired,
@@ -109,7 +109,7 @@ Function Get-WindowsUpdate {
         $Query = @()
     }
 
-	Process {
+    Process {
         $conversion.GetEnumerator() | Foreach-Object {
             $condition = Get-Variable $_.Key -Scope Local
 
@@ -143,7 +143,7 @@ Function Get-WindowsUpdate {
             }
 
             If ($ComputerName) {
-		            Write-Verbose "Query is '$Query'"
+                 Write-Verbose "Query is '$Query'"
                 Invoke-Command -ComputerName $ComputerName -ScriptBlock $scriptBlock -ArgumentList $Query, $PassThru |
                     Select-Object PSRemoteComputer, Title, LastDeploymentChangeTime
             } Else {
@@ -152,6 +152,6 @@ Function Get-WindowsUpdate {
         } Catch {
             Throw $_.Exception.Message
         }
-	}
+    }
 }
 #endregion
