@@ -1,66 +1,3 @@
-#region HTML Report
-$Computers = @(
-	'DC'
-	'CLIENT2'
-	'WSUS'
-	'CLIENT3'
-)
-
-$Jobs    = @()
-$Results = @()
-$Path    = "$($Env:USERPROFILE)\Desktop\report.html"
-
-
-
-$Computers | Foreach-Object {
-	# Not all computers are ICMP ping enabled, but do support PSRemote which is what we need
-	Try {
-		Test-WSMan -ComputerName $_ -ErrorAction Stop | Out-Null
-	} Catch {
-		Return
-	}
-
-	$Name = "$($_) - Windows Update Query"
-
-	$Params = @{
-		"ComputerName" = $_
-		"ScriptBlock"  = $scriptBlock
-		"AsJob"        = $true
-		"JobName"      = $Name
-	}
-
-	Try {
-		Invoke-Command @Params
-	} Catch {
-		Throw $_.Exception.Message
-	}
-
-	$Jobs += Get-Job -Name $Name
-}
-
-$Jobs | Wait-Job | Receive-Job | Foreach-Object { $Results += $_ }
-
-If ($Results) {
-	$Results | Where-Object IsInstalled -EQ $False | ForEach-Object {
-		$Updates += [PSCustomObject]@{
-			"Title"  = $_.Title
-			"Date"   = $_.LastDeploymentChangeTime
-			"Status" = "Not Installed"
-		}
-	}
-
-	$Results | Where-Object IsInstalled -EQ $True | ForEach-Object {
-		$Updates += [PSCustomObject]@{
-			"Title"  = $_.Title
-			"Date"   = $_.LastDeploymentChangeTime
-			"Status" = "Installed"
-		}
-	}
-}
-
-
-#endregion
-
 function Out-WindowsUpdateReport {
 	[OutputType('void')]
 	[CmdletBinding()]
@@ -70,14 +7,15 @@ function Out-WindowsUpdateReport {
 		[ValidateNotNullOrEmpty()]
 		[string]$FilePath = '.\WindowsUpdates.html',
         
-		[Parameter(ValueFromPipeline)]
+		[Parameter(Mandatory, ValueFromPipeline)]
 		[ValidateNotNullOrEmpty()]
-		[pscustomobject[]]$UpdateResults
+		[pscustomobject]$UpdateResult
 	)
 
-	$ErrorActionPreference = 'Stop'
+	begin {
+		$ErrorActionPreference = 'Stop'
 
-	$header = @"
+		$header = @"
 <!doctype html>
 <html lang='en'>
 <head>
@@ -96,29 +34,34 @@ function Out-WindowsUpdateReport {
         <tbody>
 "@
 
-	$body = ""
-	$UpdateResults | ForEach-Object {
-		if ($_.PSComputerName) {
-			$computerName = $_.PSComputerName
-		} else {
-			$computerName = 'Local'
-		}
-		If ($_.IsInstalled) {
-			$class = 'installed'
-		} Else {
-			$class = 'notinstalled'
-		}
-		$body += "`t`t`t<tr class='$class'><td>$($computerName)</td><td>$($_.Title)</td><td>$($_.Description)</td><td>$($_.IsInstalled)</td></tr>`r`n"
-	}
-
-	$footer = @"
+		$body = ""
+    
+		$footer = @"
         </tbody>
     </table>
 </body>
 </html>
 "@
+	}
 
-	$html = $header + $body + $footer
-
-	$html | Out-File -FilePath $FilePath -Force
+	process {
+		if ($UpdateResult.PSComputerName) {
+			$computerName = $UpdateResult.PSComputerName
+		} else {
+			$computerName = 'Local'
+		}
+		If ($UpdateResult.IsInstalled) {
+			$class = 'installed'
+		} Else {
+			$class = 'notinstalled'
+		}
+		$body += "`t`t`t<tr class='$class'><td>$($computerName)</td><td>$($UpdateResult.Title)</td><td>$($UpdateResult.Description)</td><td>$($UpdateResult.IsInstalled)</td></tr>`r`n"
+	}
+	end {
+		$html = $header + $body + $footer
+		$html | Out-File -FilePath $FilePath -Force
+	}	
 }
+
+Get-WindowsUpdate | Out-WindowsUpdateReport
+Import-Csv -Path C:\computers.txt | Get-WindowsUpdate | Out-WindowsUpdateReport

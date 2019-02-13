@@ -226,7 +226,7 @@ Function Get-WindowsUpdate {
 ## Function demonstration
 Get-WindowsUpdate
 Get-WindowsUpdate -ComputerName DC
-Get-WindowsUpdate -ComputerName DC -Installed
+Get-WindowsUpdate -ComputerName DC -Installed $true
 Get-WindowsUpdate | Select-Object -Property Title, Description, IsInstalled | Format-List
 
 Import-Csv -Path C:\computers.txt
