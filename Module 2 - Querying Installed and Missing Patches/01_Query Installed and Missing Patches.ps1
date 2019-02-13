@@ -104,9 +104,8 @@ Function Get-WindowsUpdate {
 		[Switch]$Assigned,
 		[Switch]$RebootRequired,
 
-		[Parameter(ValueFromPipeline)]
+		[Parameter(ValueFromPipelineByPropertyName)]
 		[Alias('Name')]
-		[ValidateNotNullOrEmpty()]
 		[String]$ComputerName
 	)
 
@@ -172,4 +171,6 @@ Get-WindowsUpdate
 Get-WindowsUpdate -ComputerName DC
 Get-WindowsUpdate -ComputerName DC -Installed
 
-Get-AdComputer | Get-WindowsUpdate
+Import-Csv -Path C:\computers.txt
+
+Import-Csv -Path C:\computers.txt | Get-WindowsUpdate
