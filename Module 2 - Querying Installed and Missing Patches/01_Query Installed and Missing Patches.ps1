@@ -66,7 +66,7 @@ Invoke-Command -ComputerName 'DC' -ScriptBlock $scriptblock
 
 #region Microsoft Update, Windows Update and WSUS
 # Microsoft Updates (normally the default) is MS product updates and everything in Windows Updates
-# Windows Updates are Service Packs and core dupates but not product updates
+# Windows Updates are Service Packs and core upates but not product updates
 $serviceManager = New-Object -Com 'Microsoft.Update.ServiceManager'
 $serviceManager.Services | Select-Object Name, ISManaged, IsDefaultAUService, ServiceUrl
 #endregion
@@ -90,12 +90,13 @@ $Params = @{
 
 Invoke-Command @Params
 
-$Result = Get-Job | Where-Object Name -Match "Windows Update Query" | Select -Last 1 | Wait-Job | Receive-Job
+$Result = Get-Job | Where-Object Name -Match "Windows Update Query" | Select-Object -Last 1 | Wait-Job | Receive-Job
 
 $Result
 #endregion
 
 #region Parallel Computers
+# Clear all previous jobs
 Get-Job | Remove-Job
 
 $Computers = @(
@@ -149,20 +150,45 @@ $Results | Select-Object PSComputerName, Title | Format-Table -AutoSize
 #endregion
 
 #region Wrap it all up into a function
-
 Function Get-WindowsUpdate {
-	[OutputType([pscustomobject])]
+    <#
+	.SYNOPSIS
+		This function retrieves all Windows Updates meeting the given criteria locally or remotely.
+	.DESCRIPTION
+		Utilizing the built-in Windows COM objects to interact with the Windows Update service retrieve all Windows Updates meeting the given criteria both on the local system or on a remote system.
+	.EXAMPLE
+		PS> Get-WindowsUpdate
+
+        Title                                                                                                      LastDeploymentChangeTime
+        -----                                                                                                      -------------------
+        Windows Malicious Software Removal Tool x64 - February 2019 (KB890830)                                     2/13/2019 12:00:...
+        2019-02 Cumulative Update for .NET Framework 3.5 and 4.7.2 for Windows 10 Version 1809 for x64 (KB4483452) 2/13/2019 12:00:...
+        2019-02 Cumulative Update for Windows 10 Version 1809 for x64-based Systems (KB4487044)                    2/13/2019 12:00:...
+	.PARAMETER Installed
+		Return installed updates.
+	.PARAMETER Hidden
+		Return updates that have been hidden from installation.
+	.PARAMETER Assigned
+		Return updates that are intended for deployment by Windows Automatic Updates.
+	.PARAMETER RebootRequired
+        Return updates that require a reboot after installation.
+    .PARAMETER ComputerName
+        The remote system to retrieve updates from, also aliased as 'Name'.
+	#>
+	[OutputType([PSCustomObject])]
 	[CmdletBinding()]
 
 	Param (
-		[bool]$Installed,
-		[bool]$Hidden,
-		[bool]$Assigned,
-		[bool]$RebootRequired,
+		[Bool]$Installed,
+		[Bool]$Hidden,
+		[Bool]$Assigned,
+		[Bool]$RebootRequired,
 
 		[Parameter(ValueFromPipelineByPropertyName)]
 		[Alias('Name')]
-		[String]$ComputerName
+        [String]$ComputerName,
+
+        [Switch]$AsJob
 	)
 
 	Begin {
@@ -178,17 +204,16 @@ Function Get-WindowsUpdate {
 	}
 
 	Process {
-
 		## Build the query string
 		$paramToQueryMap.GetEnumerator() | Foreach-Object {
-			if ($PSBoundParameters.ContainsKey($_.Name)) {
-				$query += '{0}={1}' -f $paramToQueryMap[$_.Name], [int](Get-Variable -Name $_.Name).Value
+			If ($PSBoundParameters.ContainsKey($_.Name)) {
+				$query += '{0}={1}' -f $paramToQueryMap[$_.Name], [Int](Get-Variable -Name $_.Name).Value
 			}
 		}
 
 		$query = $query -Join ' AND '
 
-		try {
+		Try {
 			## Create the scriptblock we'll use to pass to the remote computer or run locally
 			$scriptBlock = {
 				param (
@@ -202,22 +227,25 @@ Function Get-WindowsUpdate {
 				$updateSession  = New-Object -ComObject 'Microsoft.Update.Session'
 				$updateSearcher = $updateSession.CreateUpdateSearcher()
 
-				if ($updates = ($updateSearcher.Search($Query))) {
+				If ($updates = ($updateSearcher.Search($Query))) {
 					$updates.Updates
 				}
 			}
 
 			## Run the query
 			$icmParams = @{
-				ScriptBlock  = $scriptBlock
-				ArgumentList = $Query
-			}
-			if ($PSBoundParameters.ContainsKey('ComputerName')) {
+				'ScriptBlock'  = $scriptBlock
+                'ArgumentList' = $Query
+                'Job'          = $AsJob.IsPresent
+            }
+
+			If ($PSBoundParameters.ContainsKey('ComputerName')) {
 				$icmParams.ComputerName = $ComputerName
 			}
+
 			Invoke-Command @icmParams
-		} catch {
-			throw $_.Exception.Message
+		} Catch {
+			Throw $_.Exception.Message
 		}
 	}
 }
@@ -225,10 +253,10 @@ Function Get-WindowsUpdate {
 
 ## Function demonstration
 Get-WindowsUpdate
-Get-WindowsUpdate -ComputerName DC
-Get-WindowsUpdate -ComputerName DC -Installed $true
+Get-WindowsUpdate -ComputerName 'DC'
+Get-WindowsUpdate -ComputerName 'DC' -Installed $true
 Get-WindowsUpdate | Select-Object -Property Title, Description, IsInstalled | Format-List
 
-Import-Csv -Path C:\computers.txt
+Import-Csv -Path 'C:\computers.txt'
 
-Import-Csv -Path C:\computers.txt | Get-WindowsUpdate
+Import-Csv -Path 'C:\computers.txt' | Get-WindowsUpdate

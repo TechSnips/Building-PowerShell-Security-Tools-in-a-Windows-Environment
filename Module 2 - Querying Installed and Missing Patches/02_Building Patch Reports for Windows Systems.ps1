@@ -1,15 +1,26 @@
-function Out-WindowsUpdateReport {
+Function Out-WindowsUpdateReport {
+    <#
+	.SYNOPSIS
+		This function will output all piped in updates, remote or local, to an HTML page saved on disk.
+	.DESCRIPTION
+		Output the results of gathering Windows Updates to an HTML file on disk.
+	.EXAMPLE
+		PS> Get-WindowsUpdate | Out-WindowsUpdateReport
+	.PARAMETER FilePath
+		Location to output the report.
+	.PARAMETER UpdateResult
+		Updates to export.
+	#>
 	[OutputType('void')]
 	[CmdletBinding()]
-	param
-	(
+	Param(
 		[Parameter()]
 		[ValidateNotNullOrEmpty()]
-		[string]$FilePath = '.\WindowsUpdates.html',
-        
+		[String]$FilePath = '.\WindowsUpdates.html',
+
 		[Parameter(Mandatory, ValueFromPipeline)]
 		[ValidateNotNullOrEmpty()]
-		[pscustomobject]$UpdateResult
+		[PSCustomObject]$UpdateResult
 	)
 
 	begin {
@@ -35,7 +46,7 @@ function Out-WindowsUpdateReport {
 "@
 
 		$body = ""
-    
+
 		$footer = @"
         </tbody>
     </table>
@@ -44,24 +55,30 @@ function Out-WindowsUpdateReport {
 "@
 	}
 
-	process {
-		if ($UpdateResult.PSComputerName) {
+	Process {
+		If ($UpdateResult.PSComputerName) {
 			$computerName = $UpdateResult.PSComputerName
-		} else {
+		} Else {
 			$computerName = 'Local'
-		}
+        }
+
 		If ($UpdateResult.IsInstalled) {
 			$class = 'installed'
 		} Else {
 			$class = 'notinstalled'
-		}
+        }
+
 		$body += "`t`t`t<tr class='$class'><td>$($computerName)</td><td>$($UpdateResult.Title)</td><td>$($UpdateResult.Description)</td><td>$($UpdateResult.IsInstalled)</td></tr>`r`n"
 	}
-	end {
+	End {
 		$html = $header + $body + $footer
 		$html | Out-File -FilePath $FilePath -Force
-	}	
+	}
 }
 
+# Save the Results as an HTML Page
 Get-WindowsUpdate | Out-WindowsUpdateReport
-Import-Csv -Path C:\computers.txt | Get-WindowsUpdate | Out-WindowsUpdateReport
+# Save the Results as an HTML Page from a list of computers
+Import-Csv -Path 'C:\computers.txt' | Get-WindowsUpdate | Out-WindowsUpdateReport
+# Quickly allow filtering of the available updates by using the Out-GridView cmdlet
+Import-Csv -Path 'C:\computers.txt' | Get-WindowsUpdate | Out-GridView
