@@ -106,8 +106,8 @@ Function Install-WindowsUpdate {
 	.DESCRIPTION
 		Utilizing the built-in Windows COM objects to interact with the Windows Update service install available updates for Windows.
     .EXAMPLE
-        PS> Get-WindowsUpdate
-
+        PS> Install-WindowsUpdate
+        WARNING: Reboot required
 	.PARAMETER Updates
 		Return installed updates.
 	.PARAMETER ComputerName
@@ -151,14 +151,22 @@ Function Install-WindowsUpdate {
                     }
 
                     $installer         = New-Object -ComObject 'Microsoft.Update.Installer'
-                    $installer.Updates = $updates
+                    $installer.Updates = $updates.updates
                     $installResult     = $installer.Install()
 
                     If ($installResult.RebootRequired) {
-                        Exit 7
+                        Write-Warning "Reboot required"
+
+                        If ($PassThru) {
+                            $Updates.Updates
+                        }
                     }
                     Else {
-                        $installResult.ResultCode
+                        If ($PassThru) {
+                            $Updates.Updates
+                        } Else {
+                            $installResult.ResultCode
+                        }
                     }
                 }
             }

@@ -260,3 +260,9 @@ Get-WindowsUpdate | Select-Object -Property Title, Description, IsInstalled | Fo
 Import-Csv -Path 'C:\computers.txt'
 
 Import-Csv -Path 'C:\computers.txt' | Get-WindowsUpdate
+
+# Retrieves hotfixes (updates) that have been installed by Windows Update, Microsoft Update, Windows Server Updates
+# Pulls data from the WMI class: Win32_QuickFixEngineering
+# This class only reutnrs updates supplied by Compoonent Based Servicing (CBS). Updates supplied by MSI or the Windows Update Site are not reurned.
+Get-HotFix
+Get-HotFix -ComputerName 'DC'

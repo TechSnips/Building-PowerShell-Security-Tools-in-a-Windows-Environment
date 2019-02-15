@@ -82,3 +82,5 @@ Get-WindowsUpdate | Out-WindowsUpdateReport
 Import-Csv -Path 'C:\computers.txt' | Get-WindowsUpdate | Out-WindowsUpdateReport
 # Quickly allow filtering of the available updates by using the Out-GridView cmdlet
 Import-Csv -Path 'C:\computers.txt' | Get-WindowsUpdate | Out-GridView
+# Export the Results of Windows Update to a CSV File
+Import-Csv -Path 'C:\computers.txt' | Get-WindowsUpdate | Export-CSV -Path '.\WindowsUpdate.csv' -NoTypeInformation -Force
