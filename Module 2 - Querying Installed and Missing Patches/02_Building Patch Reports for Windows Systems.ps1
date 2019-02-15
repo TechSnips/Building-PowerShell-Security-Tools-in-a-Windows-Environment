@@ -1,5 +1,11 @@
+# Quickly allow filtering of the available updates by using the Out-GridView cmdlet
+Import-Csv -Path 'C:\computers.txt' | Get-WindowsUpdate | Out-GridView
+
+# Export the Results of Windows Update to a CSV File
+Import-Csv -Path 'C:\computers.txt' | Get-WindowsUpdate | Export-CSV -Path '.\WindowsUpdate.csv' -NoTypeInformation -Force
+
 Function Out-WindowsUpdateReport {
-    <#
+	<#
 	.SYNOPSIS
 		This function will output all piped in updates, remote or local, to an HTML page saved on disk.
 	.DESCRIPTION
@@ -60,13 +66,13 @@ Function Out-WindowsUpdateReport {
 			$computerName = $UpdateResult.PSComputerName
 		} Else {
 			$computerName = 'Local'
-        }
+		}
 
 		If ($UpdateResult.IsInstalled) {
 			$class = 'installed'
 		} Else {
 			$class = 'notinstalled'
-        }
+		}
 
 		$body += "`t`t`t<tr class='$class'><td>$($computerName)</td><td>$($UpdateResult.Title)</td><td>$($UpdateResult.Description)</td><td>$($UpdateResult.IsInstalled)</td></tr>`r`n"
 	}
@@ -80,7 +86,3 @@ Function Out-WindowsUpdateReport {
 Get-WindowsUpdate | Out-WindowsUpdateReport
 # Save the Results as an HTML Page from a list of computers
 Import-Csv -Path 'C:\computers.txt' | Get-WindowsUpdate | Out-WindowsUpdateReport
-# Quickly allow filtering of the available updates by using the Out-GridView cmdlet
-Import-Csv -Path 'C:\computers.txt' | Get-WindowsUpdate | Out-GridView
-# Export the Results of Windows Update to a CSV File
-Import-Csv -Path 'C:\computers.txt' | Get-WindowsUpdate | Export-CSV -Path '.\WindowsUpdate.csv' -NoTypeInformation -Force

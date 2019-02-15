@@ -1,4 +1,12 @@
-#region Download One Updates
+<#
+	Scenario:
+		- Find all missing updates
+		- Download missing updates
+		- Install the updates
+		- Create Install-WindowsUpdate function
+#>
+
+#region Download updates
 $updateSession    = New-Object -ComObject 'Microsoft.Update.Session'
 $updateSearcher   = $updateSession.CreateUpdateSearcher()
 
@@ -89,25 +97,25 @@ $ComputerName = 'localhost'
 $DelayMinutes = 1
 
 $scriptBlock = {
-    $updateSession    = New-Object -ComObject 'Microsoft.Update.Session'
-    $updateSearcher   = $updateSession.CreateUpdateSearcher()
-    $updatesToInstall = $updateSearcher.Search($null).Updates
+	$updateSession    = New-Object -ComObject 'Microsoft.Update.Session'
+	$updateSearcher   = $updateSession.CreateUpdateSearcher()
+	$updatesToInstall = $updateSearcher.Search($null).Updates
 
-    $Downloader         = $updateSession.CreateUpdateDownloader()
-    $Downloader.Updates = $updatesToInstall
-    $Downloader.Download()
+	$Downloader         = $updateSession.CreateUpdateDownloader()
+	$Downloader.Updates = $updatesToInstall
+	$Downloader.Download()
 
-    $Installer         = New-Object -ComObject 'Microsoft.Update.Installer'
-    $Installer.Updates = $updatesToInstall
-    $InstallerResult   = $Installer.Install()
+	$Installer         = New-Object -ComObject 'Microsoft.Update.Installer'
+	$Installer.Updates = $updatesToInstall
+	$InstallerResult   = $Installer.Install()
 }
 
 # Using the scheduled task ability create an elevated scheduled task to run our scriptblock in the future
 $Params = @{
-    "ScriptBlock"        = $scriptBlock
-    "Name"               = "$ComputerName - Windows Update Install"
-    "Trigger"            = (New-JobTrigger -At (Get-Date).AddMinutes($DelayMinutes) -Once)
-    "ScheduledJobOption" = (New-ScheduledJobOption -RunElevated)
+	"ScriptBlock"        = $scriptBlock
+	"Name"               = "$ComputerName - Windows Update Install"
+	"Trigger"            = (New-JobTrigger -At (Get-Date).AddMinutes($DelayMinutes) -Once)
+	"ScheduledJobOption" = (New-ScheduledJobOption -RunElevated)
 }
 
 Register-ScheduledJob @Params
@@ -185,14 +193,14 @@ $scriptBlock = {
 		$InstallerResult   = $Installer.Install()
 	}
 
-    $Params = @{
-        "ScriptBlock"        = $scriptBlock
-        "Name"               = "localhost - Windows Update Install"
-        "Trigger"            = (New-JobTrigger -At (Get-Date).AddMinutes($DelayMinutes) -Once)
-        "ScheduledJobOption" = (New-ScheduledJobOption -RunElevated)
-    }
+	$Params = @{
+		"ScriptBlock"        = $scriptBlock
+		"Name"               = "localhost - Windows Update Install"
+		"Trigger"            = (New-JobTrigger -At (Get-Date).AddMinutes($DelayMinutes) -Once)
+		"ScheduledJobOption" = (New-ScheduledJobOption -RunElevated)
+	}
 
-    Register-ScheduledJob @Params
+	Register-ScheduledJob @Params
 }
 
 $Computers | Foreach-Object {
@@ -228,7 +236,7 @@ Remove-WindowsPackage -PackageName $Package.PackageName -Online
 #endregion
 
 Function Install-WindowsUpdate {
-    <#
+	<#
 	.SYNOPSIS
 		Install available updates for Windows.
 	.DESCRIPTION
@@ -243,65 +251,62 @@ Function Install-WindowsUpdate {
 	.PARAMETER PassThru
 		Pass the unfiltered update objects to the pipeline.
 	#>
-    [OutputType([System.Management.Automation.PSObject])]
-    [CmdletBinding()]
+	[OutputType([System.Management.Automation.PSObject])]
+	[CmdletBinding()]
 
-    Param (
-        $Updates,
+	Param (
+		$Updates,
 
-        [Parameter(ValueFromPipeline)]
-        [ValidateNotNullOrEmpty()]
-        [Alias("Name")]
-        [String]$ComputerName,
+		[Parameter(ValueFromPipeline)]
+		[ValidateNotNullOrEmpty()]
+		[Alias("Name")]
+		[String]$ComputerName,
 
-        [Switch]$PassThru
-    )
+		[Switch]$PassThru
+	)
 
-    Process {
-        Try {
-            $scriptBlock = {
-                Param (
-                    $PassThru
-                )
+	Process {
+		Try {
+			$scriptBlock = {
+				Param (
+					$PassThru
+				)
 
-                Write-Verbose "PassThru is '$PassThru'"
+				Write-Verbose "PassThru is '$PassThru'"
 
-                $updateSession = New-Object -ComObject 'Microsoft.Update.Session'
-                $updateSearcher = $updateSession.CreateUpdateSearcher()
+				$updateSession = New-Object -ComObject 'Microsoft.Update.Session'
+				$updateSearcher = $updateSession.CreateUpdateSearcher()
 
-                If ($updates = ($updateSearcher.Search($null))) {
-                    $downloader         = $updateSession.CreateUpdateDownloader()
-                    $downloader.Updates = $updates.updates
-                    $downloadResult     = $downloader.Download()
+				If ($updates = ($updateSearcher.Search($null))) {
+					$downloader         = $updateSession.CreateUpdateDownloader()
+					$downloader.Updates = $updates.updates
+					$downloadResult     = $downloader.Download()
 
-                    If ($downloadResult.ResultCode -ne 2) {
-                        Exit $downloadResult.ResultCode;
-                    }
+					If ($downloadResult.ResultCode -ne 2) {
+						Exit $downloadResult.ResultCode;
+					}
 
-                    $installer         = New-Object -ComObject 'Microsoft.Update.Installer'
-                    $installer.Updates = $updates.updates
-                    $installResult     = $installer.Install()
+					$installer         = New-Object -ComObject 'Microsoft.Update.Installer'
+					$installer.Updates = $updates.updates
+					$installResult     = $installer.Install()
 
-                    If ($installResult.RebootRequired) {
-                        Write-Warning "Reboot Required"
-                    }
-                    Else {
-                        $installResult.ResultCode
-                    }
-                }
-            }
+					If ($installResult.RebootRequired) {
+						Write-Warning "Reboot Required"
+					} Else {
+						$installResult.ResultCode
+					}
+				}
+			}
 
-            If ($ComputerName) {
-                Invoke-Command -ComputerName $ComputerName -ScriptBlock $scriptBlock -ArgumentList $PassThru |
-                    Select-Object PSRemoteComputer, Title, LastDeploymentChangeTime
-            }
-            Else {
-                & $scriptBlock $PassThru
-            }
-        }
-        Catch {
-            Throw $_.Exception.Message
-        }
-    }
+			If ($ComputerName) {
+				Invoke-Command -ComputerName $ComputerName -ScriptBlock $scriptBlock -ArgumentList $PassThru |
+					Select-Object PSRemoteComputer, Title, LastDeploymentChangeTime
+			} Else {
+				& $scriptBlock $PassThru
+			}
+		} Catch {
+			Throw $_.Exception.Message
+		}
+	}
 }
 #endregion

@@ -28,6 +28,14 @@ $Updates.Updates | Select-Object Title, Description, RebootRequired, IsDownloade
 
 #endregion
 
+#region Using Get-HotFix
+# Retrieves hotfixes (updates) that have been installed by Windows Update, Microsoft Update, Windows Server Updates
+# Pulls data from the WMI class: Win32_QuickFixEngineering
+# This class only reutnrs updates supplied by Compoonent Based Servicing (CBS). Updates supplied by MSI or the Windows Update Site are not returned.
+Get-HotFix
+Get-HotFix -ComputerName 'DC'
+#endregion
+
 #region Search by Category
 $UpdateObjectSearcher = New-Object -ComObject 'Microsoft.Update.Searcher'
 $InstalledUpdates     = $UpdateObjectSearcher.Search("IsInstalled=1")
@@ -85,14 +93,12 @@ $Params = @{
 	"ComputerName" = 'DC'
 	"ScriptBlock"  = $scriptBlock
 	"AsJob"        = $true
-	"JobName"      = "$ComputerName - Windows Update Query"
+	"JobName"      = 'DC - Windows Update Query'
 }
 
 Invoke-Command @Params
 
-$Result = Get-Job | Where-Object Name -Match "Windows Update Query" | Select-Object -Last 1 | Wait-Job | Receive-Job
-
-$Result
+Get-Job -Name 'DC - Windows Update Query' | Wait-Job | Receive-Job
 #endregion
 
 #region Parallel Computers
@@ -151,7 +157,7 @@ $Results | Select-Object PSComputerName, Title | Format-Table -AutoSize
 
 #region Wrap it all up into a function
 Function Get-WindowsUpdate {
-    <#
+	<#
 	.SYNOPSIS
 		This function retrieves all Windows Updates meeting the given criteria locally or remotely.
 	.DESCRIPTION
@@ -186,9 +192,9 @@ Function Get-WindowsUpdate {
 
 		[Parameter(ValueFromPipelineByPropertyName)]
 		[Alias('Name')]
-        [String]$ComputerName,
+		[String]$ComputerName,
 
-        [Switch]$AsJob
+		[Switch]$AsJob
 	)
 
 	Begin {
@@ -235,9 +241,12 @@ Function Get-WindowsUpdate {
 			## Run the query
 			$icmParams = @{
 				'ScriptBlock'  = $scriptBlock
-                'ArgumentList' = $Query
-                'Job'          = $AsJob.IsPresent
-            }
+				'ArgumentList' = $Query
+			}
+			if ($PSBoundParameters.ContainsKey('AsJob')) {
+				$icmParams.JobName = $ComputerName
+				$icmParams.AsJob = $true
+			}
 
 			If ($PSBoundParameters.ContainsKey('ComputerName')) {
 				$icmParams.ComputerName = $ComputerName
@@ -261,8 +270,8 @@ Import-Csv -Path 'C:\computers.txt'
 
 Import-Csv -Path 'C:\computers.txt' | Get-WindowsUpdate
 
-# Retrieves hotfixes (updates) that have been installed by Windows Update, Microsoft Update, Windows Server Updates
-# Pulls data from the WMI class: Win32_QuickFixEngineering
-# This class only reutnrs updates supplied by Compoonent Based Servicing (CBS). Updates supplied by MSI or the Windows Update Site are not reurned.
-Get-HotFix
-Get-HotFix -ComputerName 'DC'
+Import-Csv -Path 'C:\computers.txt' | Get-WindowsUpdate -AsJob
+
+Get-Job
+
+Get-Job | Receive-Job
