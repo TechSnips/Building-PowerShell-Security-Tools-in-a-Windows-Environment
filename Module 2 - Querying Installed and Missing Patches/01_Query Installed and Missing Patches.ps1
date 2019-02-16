@@ -39,7 +39,6 @@ Get-HotFix -ComputerName 'DC'
 #region Search by Category
 $UpdateObjectSearcher = New-Object -ComObject 'Microsoft.Update.Searcher'
 $InstalledUpdates     = $UpdateObjectSearcher.Search("IsInstalled=1")
-$InstalledUpdates.Updates | % {$_.Categories | % {$_.Name}}
 
 $InstalledUpdates.Updates | Where-Object { 'Security Updates' -in ($_.Categories | foreach { $_.Name }) } | Select-Object Title, LastDeploymentChangeTime
 #endregion
@@ -96,7 +95,7 @@ $Params = @{
 	"JobName"      = 'DC - Windows Update Query'
 }
 
-Invoke-Command @Params
+$null = Invoke-Command @Params
 
 Get-Job -Name 'DC - Windows Update Query' | Wait-Job | Receive-Job
 #endregion
@@ -142,7 +141,7 @@ $Computers | Foreach-Object {
 	}
 
 	Try {
-		Invoke-Command @Params
+		$null = Invoke-Command @Params
 	} Catch {
 		Throw $_.Exception.Message
 	}
@@ -221,6 +220,7 @@ Function Get-WindowsUpdate {
 	Process {
 		Try {
 			## Create the scriptblock we'll use to pass to the remote computer or run locally
+			Write-Verbose -Message "Checking for updates on [$($ComputerName)]..."
 			$scriptBlock = {
 				param ($Query)
 
@@ -291,6 +291,8 @@ Get-WindowsUpdate -ComputerName 'DC' -Installed $true
 Import-Csv -Path 'C:\computers.txt'
 
 Import-Csv -Path 'C:\computers.txt' | Get-WindowsUpdate
+
+Get-Job | Remove-Job
 
 Import-Csv -Path 'C:\computers.txt' | Get-WindowsUpdate -AsJob
 

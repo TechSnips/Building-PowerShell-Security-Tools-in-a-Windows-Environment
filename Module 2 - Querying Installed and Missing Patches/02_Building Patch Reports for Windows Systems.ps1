@@ -4,6 +4,8 @@ Import-Csv -Path 'C:\computers.txt' | Get-WindowsUpdate | Out-GridView
 # Export the Results of Windows Update to a CSV File
 Import-Csv -Path 'C:\computers.txt' | Get-WindowsUpdate | Export-CSV -Path '.\WindowsUpdate.csv' -NoTypeInformation -Force
 
+Import-Csv -Path '.\WindowsUpdate.csv'
+
 Function Out-WindowsUpdateReport {
 	<#
 	.SYNOPSIS
@@ -79,5 +81,12 @@ Function Out-WindowsUpdateReport {
 
 # Save the Results as an HTML Page
 Get-WindowsUpdate | Out-WindowsUpdateReport
+
+## Check the results of the report
+Invoke-Item '.\WindowsUpdates.html'
+
 # Save the Results as an HTML Page from a list of computers
 Import-Csv -Path 'C:\computers.txt' | Get-WindowsUpdate | Out-WindowsUpdateReport
+
+## Check the results of the report
+Invoke-Item '.\WindowsUpdates.html'
