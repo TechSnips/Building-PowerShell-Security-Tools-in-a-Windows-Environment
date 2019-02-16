@@ -165,7 +165,7 @@ function Remove-WindowsUpdate {
 	[CmdletBinding(SupportsShouldProcess)]
 	param
 	(
-		[Parameter(Mandatory)]
+		[Parameter(Mandatory, ValueFromPipeline)]
 		[ValidateNotNullOrEmpty()]
 		[object[]]$Update,
 
@@ -194,7 +194,7 @@ function Remove-WindowsUpdate {
 							Write-Warning -Message "Restart needed to remove update."
 						}
 					} else {
-						Write-Warning -Message "The package for KB id [$($kbId)] was not found."
+						Write-Warning -Message "The package for KB ID [$($kbId)] was not found."
 					}
 				}
 			}
@@ -213,7 +213,5 @@ function Remove-WindowsUpdate {
 }
 
 $installedUpdates = Get-WindowsUpdate -Installed $true
-$installedUpdates[1]
-
-Remove-WindowsUpdate -Update $installedUpdates[1] -Restart
+$installedUpdates | Remove-WindowsUpdate -Restart
 #endregion

@@ -222,10 +222,7 @@ Function Get-WindowsUpdate {
 		Try {
 			## Create the scriptblock we'll use to pass to the remote computer or run locally
 			$scriptBlock = {
-				param (
-					$Query,
-					$PassThru
-				)
+				param ($Query)
 
 				Write-Verbose "Query is '$Query'"
 
@@ -249,9 +246,17 @@ Function Get-WindowsUpdate {
 
 			If ($PSBoundParameters.ContainsKey('ComputerName')) {
 				$icmParams.ComputerName = $ComputerName
+				$outputComputerName = $ComputerName
+			} else {
+				$outputComputerName = 'Local'
 			}
 
-			Invoke-Command @icmParams
+
+			$properties = @(
+				@{ 'Name' = 'ComputerName'; Expression = { $outputComputerName }}
+				@{ 'Name' = 'KB ID'; Expression = { $_ }}
+			)
+			(Invoke-Command @icmParams).KBArticleIds | Select-Object -Property $properties
 		} Catch {
 			Throw $_.Exception.Message
 		}
@@ -263,7 +268,6 @@ Function Get-WindowsUpdate {
 Get-WindowsUpdate
 Get-WindowsUpdate -ComputerName 'DC'
 Get-WindowsUpdate -ComputerName 'DC' -Installed $true
-Get-WindowsUpdate | Select-Object -Property Title, Description, IsInstalled | Format-List
 
 Import-Csv -Path 'C:\computers.txt'
 
