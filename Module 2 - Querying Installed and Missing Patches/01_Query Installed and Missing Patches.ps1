@@ -207,9 +207,7 @@ Function Get-WindowsUpdate {
 		}
 
 		$query = @()
-	}
 
-	Process {
 		## Build the query string
 		$paramToQueryMap.GetEnumerator() | Foreach-Object {
 			If ($PSBoundParameters.ContainsKey($_.Name)) {
@@ -218,7 +216,9 @@ Function Get-WindowsUpdate {
 		}
 
 		$query = $query -Join ' AND '
+	}
 
+	Process {
 		Try {
 			## Create the scriptblock we'll use to pass to the remote computer or run locally
 			$scriptBlock = {
@@ -229,8 +229,30 @@ Function Get-WindowsUpdate {
 				$updateSession  = New-Object -ComObject 'Microsoft.Update.Session'
 				$updateSearcher = $updateSession.CreateUpdateSearcher()
 
-				If ($updates = ($updateSearcher.Search($Query))) {
-					$updates.Updates
+				If ($result = $updateSearcher.Search($Query)) {
+					if ($result.Updates.Count -gt 0) {
+						$result.Updates | foreach {
+							$update = $_
+							$properties = @(
+								@{ 'Name' = 'IsDownloaded'; Expression = { $update.IsDownloaded }}
+								@{ 'Name' = 'IsInstalled'; Expression = { $update.IsInstalled }}
+								@{ 'Name' = 'RebootRequired'; Expression = { $update.RebootRequired }}
+								@{ 'Name' = 'ComputerName'; Expression = { $env:COMPUTERNAME }}
+								@{ 'Name' = 'KB ID'; Expression = { $_.replace('KB', '') }}
+							)
+							$_.KBArticleIds | Select-Object -Property $properties
+						} 
+					}
+				}
+				if ($Query -eq 'IsInstalled=1') {
+					$properties = @(
+						@{ 'Name' = 'IsDownloaded'; Expression = { $true }}
+						@{ 'Name' = 'IsInstalled'; Expression = { $true }}
+						@{ 'Name' = 'RebootRequired'; Expression = { 'Unknown' }}
+						@{ 'Name' = 'ComputerName'; Expression = { $env:COMPUTERNAME }}
+						@{ 'Name' = 'KB ID'; Expression = { $_.replace('KB', '') }}
+					)
+					(Get-Hotfix).HotFixId | Select-Object -Property $properties
 				}
 			}
 
@@ -240,23 +262,20 @@ Function Get-WindowsUpdate {
 				'ArgumentList' = $Query
 			}
 			if ($PSBoundParameters.ContainsKey('AsJob')) {
-				$icmParams.JobName = $ComputerName
-				$icmParams.AsJob = $true
+				if (-not $PSBoundParameters.ContainsKey('ComputerName')) {
+					throw 'This function cannot run as a job on the local comoputer.'
+				} else {
+					$icmParams.JobName = $ComputerName
+					$icmParams.AsJob = $true
+				}
 			}
 
-			If ($PSBoundParameters.ContainsKey('ComputerName')) {
+			if ($PSBoundParameters.ContainsKey('ComputerName')) {
 				$icmParams.ComputerName = $ComputerName
-				$outputComputerName = $ComputerName
-			} else {
-				$outputComputerName = 'Local'
+				$icmParams.HideComputerName = $true
 			}
 
-
-			$properties = @(
-				@{ 'Name' = 'ComputerName'; Expression = { $outputComputerName }}
-				@{ 'Name' = 'KB ID'; Expression = { $_ }}
-			)
-			(Invoke-Command @icmParams).KBArticleIds | Select-Object -Property $properties
+			Invoke-Command @icmParams | Select-Object -Property * -ExcludeProperty 'RunspaceId'
 		} Catch {
 			Throw $_.Exception.Message
 		}

@@ -43,9 +43,10 @@ Function Out-WindowsUpdateReport {
         <thead>
             <tr>
                 <th>Computer</th>
-                <th>Title</th>
-                <th>Description</th>
-                <th>IsInstalled</th>
+                <th>KB ID</th>
+				<th>IsDownloaded</th>
+				<th>IsInstalled</th>
+				<th>RebootRequired</th>
             </tr>
         </thead>
         <tbody>
@@ -62,19 +63,13 @@ Function Out-WindowsUpdateReport {
 	}
 
 	Process {
-		If ($UpdateResult.PSComputerName) {
-			$computerName = $UpdateResult.PSComputerName
-		} Else {
-			$computerName = 'Local'
-		}
-
 		If ($UpdateResult.IsInstalled) {
 			$class = 'installed'
 		} Else {
 			$class = 'notinstalled'
 		}
 
-		$body += "`t`t`t<tr class='$class'><td>$($computerName)</td><td>$($UpdateResult.Title)</td><td>$($UpdateResult.Description)</td><td>$($UpdateResult.IsInstalled)</td></tr>`r`n"
+		$body += "`t`t`t<tr class='$class'><td>$($UpdateResult.ComputerName)</td><td>$($UpdateResult.'KB ID')</td><td>$($UpdateResult.IsDownloaded)</td><td>$($UpdateResult.IsInstalled)</td><td>$($UpdateResult.RebootRequired)</td></tr>`r`n"
 	}
 	End {
 		$html = $header + $body + $footer
