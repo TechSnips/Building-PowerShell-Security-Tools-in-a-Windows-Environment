@@ -55,100 +55,231 @@ Get-WindowsUpdate
 
 $ComputerName = 'DC'
 
-$scriptBlock = {
-	$updateSession    = New-Object -ComObject 'Microsoft.Update.Session'
-	$updateSearcher   = $updateSession.CreateUpdateSearcher()
-	$updatesToInstall = $updateSearcher.Search($null).Updates
 
-	$Downloader         = $updateSession.CreateUpdateDownloader()
-	$Downloader.Updates = $updatesToInstall
-	$Downloader.Download()
-
-	$Installer         = New-Object -ComObject 'Microsoft.Update.Installer'
-	$Installer.Updates = $updatesToInstall
-	$Installer.Install()
-}
-
-Invoke-Command -ComputerName $ComputerName -ScriptBlock $scriptBlock
 
 #endregion
 
-Function Install-WindowsUpdate {
-	<#
-	.SYNOPSIS
-		Install available updates for Windows.
-	.DESCRIPTION
-		Utilizing the built-in Windows COM objects to interact with the Windows Update service install available updates for Windows.
-    .EXAMPLE
-        PS> Get-WindowsUpdate | Install-WindowsUpdate
-
-	.PARAMETER Update
-		The update result object returned by Get-WindowsUpdate
-
-	.PARAMETER AsJob
-		Use the AsJob parameter to run each installation process in a background job.
-	#>
-	[OutputType([pscustomobject])]
+#region Creating a scheduled task function
+function New-WindowsUpdateScheduledTask {
+	[OutputType([void])]
 	[CmdletBinding()]
+	param
+	(
+		[Parameter(Mandatory)]
+		[System.Management.Automation.Runspaces.PSSession]$Session,
 
-	Param (
-		[Parameter(Manatory, ValueFromPipeline)]
+		[Parameter(Mandatory)]
+		[string]$Name,
+
+		[Parameter(Mandatory)]
 		[ValidateNotNullOrEmpty()]
-		[object]$Update,
+		[scriptblock]$Scriptblock,
 
 		[Parameter()]
 		[ValidateNotNullOrEmpty()]
-		[switch]$Restart,
+		[pscredential]$Credential
+	)
+
+	$createStartSb = {
+		$taskName = $args[0]
+		$taskArgs = $args[1] -replace '"', '\"'
+		$taskUser = $args[2]
+
+		$tempScript = "$env:TEMP\WUUpdateScript.ps1"
+		Set-Content -Path $tempScript -Value $taskArgs
+
+		schtasks /create /SC ONSTART /TN $taskName /TR "powershell.exe -NonInteractive -NoProfile -File $tempScript" /F /RU $taskUser /RL HIGHEST
+	}
+
+	$command = $Scriptblock.ToString()
+
+	$icmParams = @{
+		Session      = $Session
+		ScriptBlock  = $createStartSb
+		ArgumentList = $Name, $command
+	}
+	if ($PSBoundParameters.ContainsKey('Credential')) {
+		$icmParams.ArgumentList += $Credential.UserName	
+	} else {
+		$icmParams.ArgumentList += 'SYSTEM'
+	}
+	Write-Verbose -Message "Running code via powershell.exe: [$($command)]"
+	Invoke-Command @icmParams
+	
+}
+#endregion
+
+function Install-WindowsUpdate {
+	<#
+		.SYNOPSIS
+			This function retrieves all updates that are targeted at a remote computer, download and installs any that it
+			finds. Depending on how the remote computer's update source is set, it will either read WSUS or Microsoft Update
+			for a compliancy report.
+
+			Once found, it will download each update, install them and then read output to detect if a reboot is required
+			or not.
+	
+		.EXAMPLE
+			PS> Install-WindowsUpdate -ComputerName FOO.domain.local
+
+		.EXAMPLE
+			PS> Install-WindowsUpdate -ComputerName FOO.domain.local,FOO2.domain.local			
+		
+		.EXAMPLE
+			PS> Install-WindowsUpdate -ComputerName FOO.domain.local,FOO2.domain.local -ForceReboot
+
+		.PARAMETER ComputerName
+			 A mandatory string parameter representing one or more computer FQDNs.
+
+		.PARAMETER Credential
+			 A optional pscredential parameter representing an alternate credential to connect to the remote computer.
+		
+		.PARAMETER ForceReboot
+			 An optional switch parameter to set if any updates on any computer targeted needs a reboot following update
+			 install. By default, computers are NOT rebooted automatically. Use this switch to force a reboot.
+		
+		.PARAMETER AsJob
+			 A optional switch parameter to set when activity needs to be sent to a background job. By default, this function 
+			 waits for each computer to finish. However, if this parameter is used, it will start the process on each
+			 computer and immediately return a background job object to then monitor yourself with Get-Job.
+	#>
+	[OutputType([void])]
+	[CmdletBinding()]
+	param
+	(
+		[Parameter(Mandatory)]
+		[ValidateNotNullOrEmpty()]
+		[string[]]$ComputerName,
+
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[switch]$ForceReboot,
 
 		[Parameter()]
 		[ValidateNotNullOrEmpty()]
 		[switch]$AsJob
 	)
+	begin {
+		$ErrorActionPreference = 'Stop'
 
+		$scheduledTaskName = 'Windows Update Install'
+
+	}
 	process {
-		$scriptBlock = {
-			param($Update)
-			$updateSession = New-Object -ComObject 'Microsoft.Update.Session'
-			$updateSearcher = $updateSession.CreateUpdateSearcher()
+		try {
+			@($ComputerName).foreach({
+					Write-Verbose -Message "Starting Windows update on [$($_)]"
+					$installProcess = {
+						param($ComputerName, $TaskName, $ForceReboot)
 
-			If ($updates = ($updateSearcher.Search($null))) {
-				$downloader         = $updateSession.CreateUpdateDownloader()
-				$downloader.Updates = $updates.updates
-				$downloadResult     = $downloader.Download()
+						$ErrorActionPreference = 'Stop'
+						try {
+							if (-not (Get-WindowsUpdate -ComputerName $ComputerName)) {
+								Write-Verbose -Message 'No updates needed to install. Skipping computer...'
+							} else {
+								$sessParams = @{ ComputerName = $ComputerName }    
+								$session = New-PSSession @sessParams
 
-				If ($downloadResult.ResultCode -ne 2) {
-					Exit $downloadResult.ResultCode;
-				}
+								$scriptBlock = {
+									$updateSession = New-Object -ComObject 'Microsoft.Update.Session';
+									$objSearcher = $updateSession.CreateUpdateSearcher()
+									if ($updates = ($objSearcher.Search('IsInstalled=0'))) {
+										$updates = $updates.Updates
 
-				$installer         = New-Object -ComObject 'Microsoft.Update.Installer'
-				$installer.Updates = $updates.updates
-				$installResult     = $installer.Install()
+										$downloader = $updateSession.CreateUpdateDownloader()
+										$downloader.Updates = $updates
+										$downloadResult = $downloader.Download()
+										if ($downloadResult.ResultCode -ne 2) {
+											exit $downloadResult.ResultCode
+										}
 
-				If ($installResult.RebootRequired -and $Restart.IsPresent) {
-					Restart-Computer -Force
-				} Else {
-					Write-Warning "Reboot Required"
-					$installResult.ResultCode
-				}
+										$installer = New-Object -ComObject Microsoft.Update.Installer
+										$installer.Updates = $updates
+										$installResult = $installer.Install()
+										if ($installResult.RebootRequired) {
+											exit 7
+										} else {
+											$installResult.ResultCode
+										}
+									} else {
+										exit 6
+									}
+								}
+                        
+								$taskParams = @{
+									Session     = $session
+									Name        = $TaskName
+									Scriptblock = $scriptBlock
+								}
+								Write-Verbose -Message 'Creating scheduled task...'
+								New-WindowsUpdateScheduledTask @taskParams
+
+								Write-Verbose -Message "Starting scheduled task [$($TaskName)]..."
+
+								$icmParams = @{
+									Session      = $session
+									ScriptBlock  = { schtasks /run /TN "\$($args[0])" /I }
+									ArgumentList = $TaskName
+								}
+								Invoke-Command @icmParams
+
+								## This could take awhile depending on the number of updates
+								Wait-ScheduledTask -Name $TaskName -ComputerName $ComputerName -Timeout 2400
+
+								$installResult = Get-WindowsUpdateInstallResult -Session $session
+
+								if ($installResult -eq 'NoUpdatesNeeded') {
+									Write-Verbose -Message "No updates to install"
+								} elseif ($installResult -eq 'RebootRequired') {
+									if ($ForceReboot) {
+										Restart-Computer -ComputerName $ComputerName -Force -Wait;
+									} else {
+										Write-Warning "Reboot required but -ForceReboot was not used."
+									}
+								} else {
+									throw "Updates failed. Reason: [$($installResult)]"
+								}
+							}
+						} catch {
+							Write-Error -Message $_.Exception.Message
+						} finally {
+							Remove-ScheduledTask -ComputerName $ComputerName -Name $TaskName
+						}
+					}
+
+					$blockArgs = $_, $scheduledTaskName, $Credential, $ForceReboot.IsPresent
+					if ($AsJob.IsPresent) {
+						$jobParams = @{
+							ScriptBlock          = $installProcess
+							Name                 = "$_ - EO Windows Update Install"
+							ArgumentList         = $blockArgs
+							InitializationScript = { Import-Module -Name 'GHI.Library.WindowsUpdate' }
+						}
+						Start-Job @jobParams
+					} else {
+						Invoke-Command -ScriptBlock $installProcess -ArgumentList $blockArgs
+					}
+				})
+		} catch {
+			Write-Log -Source $MyInvocation.MyCommand -EventId 1003 -EntryType Error -ErrorRecord $_
+		} finally {
+			if (-not $AsJob.IsPresent) {
+				# Remove any sessions created. This is done when processes aren't invoked under a PS job
+				Write-Verbose -Message 'Finding any lingering PS sessions on computers...'
+				@(Get-PSSession -ComputerName $ComputerName).foreach({
+						Write-Verbose -Message "Removing PS session from [$($_)]..."
+						Remove-PSSession -Session $_
+					})
 			}
 		}
-			
-		$invokeCommandSplat = @{
-			ScriptBlock = $scriptBlock
-		}
-
-		if ($PSBoundParameters.ContainsKey('ComputerName')) {
-			$invokeCommandSplat.ComputerName = $ComputerName
-		}
-		try {
-			Invoke-Command @invokeCommandSplat
-		} catch {
-			throw $_.Exception.Message
-		}
+	}
+	end {
+		Write-Log -Source $MyInvocation.MyCommand -Message ('{0}: Exiting' -f $MyInvocation.MyCommand)
+		$ErrorActionPreference = 'Continue'
 	}
 }
 
-Get-WindowsUpdate | Install-WindowsUpdate
+Install-WindowsUpdate -ComputerName DC
 #endregion
 
 #region Removing Windows Update
