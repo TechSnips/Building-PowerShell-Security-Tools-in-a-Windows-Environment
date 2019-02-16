@@ -7,6 +7,10 @@
 #>
 
 #region Download updates
+
+## Let's first check for any missing updates
+Get-WindowsUpdate
+
 $updateSession    = New-Object -ComObject 'Microsoft.Update.Session'
 $updateSearcher   = $updateSession.CreateUpdateSearcher()
 
@@ -32,7 +36,7 @@ If ($updates = ($updateSearcher.Search($null))) {
 }
 #endregion
 
-#region Install the updates
+#region Install the updates locally
 $updatesToInstall = New-Object -ComObject 'Microsoft.Update.UpdateColl'
 
 $updates.updates |
@@ -45,12 +49,15 @@ $installer.Updates = $updatesToInstall
 $installResult     = $installer.Install()
 
 $installResult
+
+## Check for missing updates again
+Get-WindowsUpdate
+
 #endregion
 
-#region Defer Execution of Install
-# Remove all existing scheduled jobs
-$ComputerName = 'localhost'
-$DelayMinutes = 1
+#region Install updates remotely
+
+$ComputerName = 'DC'
 
 $scriptBlock = {
 	$updateSession    = New-Object -ComObject 'Microsoft.Update.Session'
@@ -63,132 +70,11 @@ $scriptBlock = {
 
 	$Installer         = New-Object -ComObject 'Microsoft.Update.Installer'
 	$Installer.Updates = $updatesToInstall
-	$InstallerResult   = $Installer.Install()
+	$Installer.Install()
 }
 
-# Using the scheduled task ability create an elevated scheduled task to run our scriptblock in the future
-$Params = @{
-	"ScriptBlock"        = $scriptBlock
-	"Name"               = "$ComputerName - Windows Update Install"
-	"Trigger"            = (New-JobTrigger -At (Get-Date).AddMinutes($DelayMinutes) -Once)
-	"ScheduledJobOption" = (New-ScheduledJobOption -RunElevated)
-}
+Invoke-Command -ComputerName $ComputerName -ScriptBlock $scriptBlock
 
-Register-ScheduledJob @Params
-#endregion
-
-#region Remotely Install Updates
-$Computers = @(
-	'CLIENT'
-	'CLIENT2'
-)
-
-$scriptBlock = {
-	$updateSession    = New-Object -ComObject 'Microsoft.Update.Session'
-	$updateSearcher   = $updateSession.CreateUpdateSearcher()
-	$updatesToInstall = New-Object -ComObject 'Microsoft.Update.UpdateColl'
-
-	If ($updates = ($updateSearcher.Search($Null))) {
-		$updates.updates |
-			Where-Object Title -Match "Adobe Flash Player" |
-			Foreach-Object { $updatesToInstall.Add($_) | Out-Null }
-
-		$downloader         = $updateSession.CreateUpdateDownloader()
-		$downloader.Updates = $updatesToInstall
-		$downloadResult     = $downloader.Download()
-
-		$installer          = New-Object -ComObject 'Microsoft.Update.Installer'
-		$installer.Updates  = $updatesToInstall
-		$installResult      = $installer.Install()
-	}
-}
-
-$Computers | Foreach-Object {
-	# Not all computers are ICMP ping enabled, but do support PSRemote which is what we need
-	Try {
-		Test-WSMan -ComputerName $_ -ErrorAction Stop | Out-Null
-	} Catch {
-		Return
-	}
-
-	$Name = "$($_) - Windows Update Download and Install"
-
-	$Params = @{
-		"ComputerName" = $_
-		"ScriptBlock"  = $scriptBlock
-		"AsJob"        = $true
-		"JobName"      = $Name
-	}
-
-	Try {
-		Invoke-Command @Params
-	} Catch {
-		Throw $_.Exception.Message
-	}
-}
-#endregion
-
-#region Remotely Schedule Install for Updates
-$Computers = @(
-	'CLIENT'
-	'CLIENT2'
-)
-
-$scriptBlock = {
-	$scriptBlock = {
-		$updateSession    = New-Object -ComObject 'Microsoft.Update.Session'
-		$updateSearcher   = $updateSession.CreateUpdateSearcher()
-		$updatesToInstall = $updateSearcher.Search($null).Updates
-
-		$Downloader         = $updateSession.CreateUpdateDownloader()
-		$Downloader.Updates = $updatesToInstall
-		$Downloader.Download()
-
-		$Installer         = New-Object -ComObject 'Microsoft.Update.Installer'
-		$Installer.Updates = $updatesToInstall
-		$InstallerResult   = $Installer.Install()
-	}
-
-	$Params = @{
-		"ScriptBlock"        = $scriptBlock
-		"Name"               = "localhost - Windows Update Install"
-		"Trigger"            = (New-JobTrigger -At (Get-Date).AddMinutes($DelayMinutes) -Once)
-		"ScheduledJobOption" = (New-ScheduledJobOption -RunElevated)
-	}
-
-	Register-ScheduledJob @Params
-}
-
-$Computers | Foreach-Object {
-	# Not all computers are ICMP ping enabled, but do support PSRemote which is what we need
-	Try {
-		Test-WSMan -ComputerName $_ -ErrorAction Stop | Out-Null
-	} Catch {
-		Return
-	}
-
-	$Name = "$($_) - Windows Update Download and Install Scheduled"
-
-	$Params = @{
-		"ComputerName" = $_
-		"ScriptBlock"  = $scriptBlock
-		"AsJob"        = $true
-		"JobName"      = $Name
-	}
-
-	Try {
-		Invoke-Command @Params
-	} Catch {
-		Throw $_.Exception.Message
-	}
-}
-#endregion
-
-#region Remove Windows Update
-Import-Module DISM
-$Package = Get-WindowsPackage -Online -PackageName 'Package_for_KB4487038~31bf3856ad364e35~amd64~~10.0.1.0'
-
-Remove-WindowsPackage -PackageName $Package.PackageName -Online
 #endregion
 
 Function Install-WindowsUpdate {
@@ -207,7 +93,7 @@ Function Install-WindowsUpdate {
 	.PARAMETER PassThru
 		Pass the unfiltered update objects to the pipeline.
 	#>
-	[OutputType([System.Management.Automation.PSObject])]
+	[OutputType([pscustomobject])]
 	[CmdletBinding()]
 
 	Param (
@@ -218,51 +104,116 @@ Function Install-WindowsUpdate {
 		[Alias("Name")]
 		[String]$ComputerName,
 
-		[Switch]$PassThru
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[switch]$Restart,
+
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[switch]$AsJob
 	)
 
-	Process {
-		Try {
-			$scriptBlock = {
-				Param (
-					$PassThru
-				)
+	process {
+		$scriptBlock = {
+			$updateSession = New-Object -ComObject 'Microsoft.Update.Session'
+			$updateSearcher = $updateSession.CreateUpdateSearcher()
 
-				Write-Verbose "PassThru is '$PassThru'"
+			If ($updates = ($updateSearcher.Search($null))) {
+				$downloader         = $updateSession.CreateUpdateDownloader()
+				$downloader.Updates = $updates.updates
+				$downloadResult     = $downloader.Download()
 
-				$updateSession = New-Object -ComObject 'Microsoft.Update.Session'
-				$updateSearcher = $updateSession.CreateUpdateSearcher()
+				If ($downloadResult.ResultCode -ne 2) {
+					Exit $downloadResult.ResultCode;
+				}
 
-				If ($updates = ($updateSearcher.Search($null))) {
-					$downloader         = $updateSession.CreateUpdateDownloader()
-					$downloader.Updates = $updates.updates
-					$downloadResult     = $downloader.Download()
+				$installer         = New-Object -ComObject 'Microsoft.Update.Installer'
+				$installer.Updates = $updates.updates
+				$installResult     = $installer.Install()
 
-					If ($downloadResult.ResultCode -ne 2) {
-						Exit $downloadResult.ResultCode;
-					}
-
-					$installer         = New-Object -ComObject 'Microsoft.Update.Installer'
-					$installer.Updates = $updates.updates
-					$installResult     = $installer.Install()
-
-					If ($installResult.RebootRequired) {
-						Write-Warning "Reboot Required"
-					} Else {
-						$installResult.ResultCode
-					}
+				If ($installResult.RebootRequired -and $Restart.IsPresent) {
+					Restart-Computer -Force
+				} Else {
+					Write-Warning "Reboot Required"
+					$installResult.ResultCode
 				}
 			}
+		}
+			
+		$invokeCommandSplat = @{
+			ScriptBlock = $scriptBlock
+		}
 
-			If ($ComputerName) {
-				Invoke-Command -ComputerName $ComputerName -ScriptBlock $scriptBlock -ArgumentList $PassThru |
-					Select-Object PSRemoteComputer, Title, LastDeploymentChangeTime
-			} Else {
-				& $scriptBlock $PassThru
-			}
-		} Catch {
-			Throw $_.Exception.Message
+		if ($PSBoundParameters.ContainsKey('ComputerName')) {
+			$invokeCommandSplat.ComputerName = $ComputerName
+		}
+		try {
+			Invoke-Command @invokeCommandSplat
+		} catch {
+			throw $_.Exception.Message
 		}
 	}
 }
+
+Get-WindowsUpdate | Install-WindowsUpdate
+#endregion
+
+#region Removing Windows Update
+
+function Remove-WindowsUpdate {
+	[OutputType('void')]
+	[CmdletBinding(SupportsShouldProcess)]
+	param
+	(
+		[Parameter(Mandatory)]
+		[ValidateNotNullOrEmpty()]
+		[object[]]$Update,
+
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[string]$ComputerName,
+
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[switch]$Restart
+	)
+
+	begin {
+		$ErrorActionPreference = 'Stop'
+	}
+	process {
+		$scriptBlock = {
+			param($Update, $Restart)
+			foreach ($patch in $Update) {
+				foreach ($kbId in $patch.KBArticleIds) {
+					if ($package = (Get-WindowsPackage -Online).where({ $_.PackageName -match "^Package_for_KB$kbId"})) {
+						$result = Remove-WindowsPackage -PackageName $Package.PackageName -Online -NoRestart
+						if ($result.RestartNeeded -and $Restart.IsPresent) {
+							Restart-Computer -Force
+						} else {
+							Write-Warning -Message "Restart needed to remove update."
+						}
+					} else {
+						Write-Warning -Message "The package for KB id [$($kbId)] was not found."
+					}
+				}
+			}
+		}
+		$params = @{
+			ScriptBlock  = $scriptBlock
+			ArgumentList = $Update
+		}
+		if ($PSBoundParameters.ContainsKey('ComputerName')) {
+			$params.ComputerName = $ComputerName
+		}
+		if ($PSCmdlet.ShouldProcess($ComputerName, 'Install updates')) {
+			Invoke-Command @params
+		}
+	}
+}
+
+$installedUpdates = Get-WindowsUpdate -Installed $true
+$installedUpdates[1]
+
+Remove-WindowsUpdate -Update $installedUpdates[1] -Restart
 #endregion

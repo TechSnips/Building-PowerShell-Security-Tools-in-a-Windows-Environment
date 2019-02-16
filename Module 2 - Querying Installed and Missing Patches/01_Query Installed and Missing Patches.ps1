@@ -228,7 +228,6 @@ Function Get-WindowsUpdate {
 				)
 
 				Write-Verbose "Query is '$Query'"
-				Write-Verbose "PassThru is '$PassThru'"
 
 				$updateSession  = New-Object -ComObject 'Microsoft.Update.Session'
 				$updateSearcher = $updateSession.CreateUpdateSearcher()
