@@ -11,20 +11,18 @@ $updateSession    = New-Object -ComObject 'Microsoft.Update.Session'
 $updateSearcher   = $updateSession.CreateUpdateSearcher()
 
 # Create the update collection object to add our updates to
-$updatesToInstall = New-Object -ComObject 'Microsoft.Update.UpdateColl'
+$updatesToDownload = New-Object -ComObject 'Microsoft.Update.UpdateColl'
 
 If ($updates = ($updateSearcher.Search($null))) {
 	# Show existing updates before filtering
 	$updates.updates | Select-Object 'Title', 'IsDownloaded'
 
 	# Filter out just the updates that we want and add them to our collection
-	$updates.updates |
-		Where-Object Title -Match "Adobe Flash Player" |
-		Foreach-Object { $updatesToInstall.Add($_) | Out-Null }
+	$updates.updates | Foreach-Object { $updatesToDownload.Add($_) | Out-Null }
 
 	# Create the download object, assign our updates to download and initiate the download
 	$downloader         = $updateSession.CreateUpdateDownloader()
-	$downloader.Updates = $updatesToInstall
+	$downloader.Updates = $updatesToDownload
 	$downloadResult     = $downloader.Download()
 
 	# Show the updates to verify that they've been downloaded
@@ -34,7 +32,7 @@ If ($updates = ($updateSearcher.Search($null))) {
 }
 #endregion
 
-#region Install One Downloaded Updates
+#region Install the updates
 $updatesToInstall = New-Object -ComObject 'Microsoft.Update.UpdateColl'
 
 $updates.updates |
@@ -47,48 +45,6 @@ $installer.Updates = $updatesToInstall
 $installResult     = $installer.Install()
 
 $installResult
-#endregion
-
-#region Download All Updates
-$updateSession  = New-Object -ComObject 'Microsoft.Update.Session'
-$updateSearcher = $updateSession.CreateUpdateSearcher()
-
-If ($updates = ($updateSearcher.Search($null))) {
-	$updates.updates | Select-Object 'Title', 'IsDownloaded'
-
-	$downloader         = $updateSession.CreateUpdateDownloader()
-	$downloader.Updates = $updates.updates
-	$downloadResult     = $downloader.Download()
-
-	$updates = $updateSearcher.Search($null)
-
-	$updates.updates | Select-Object 'Title', 'IsDownloaded'
-}
-#endregion
-
-#region Download & Install Updates
-$updateSession  = New-Object -ComObject 'Microsoft.Update.Session'
-$updateSearcher = $updateSession.CreateUpdateSearcher()
-
-If ($updates = ($updateSearcher.Search($null))) {
-	$downloader         = $updateSession.CreateUpdateDownloader()
-	$downloader.Updates = $updates.updates
-	$downloadResult     = $downloader.Download()
-
-	If ($downloadResult.ResultCode -ne 2) {
-		Exit $downloadResult.ResultCode;
-	}
-
-	$installer         = New-Object -ComObject 'Microsoft.Update.Installer'
-	$installer.Updates = $updates
-	$installResult     = $installer.Install()
-
-	If ($installResult.RebootRequired) {
-		Write-Warning "Reboot Required"
-	} Else {
-		$installResult.ResultCode
-	}
-}
 #endregion
 
 #region Defer Execution of Install
