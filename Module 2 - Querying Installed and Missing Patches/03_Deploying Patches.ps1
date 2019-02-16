@@ -17,23 +17,19 @@ $updateSearcher   = $updateSession.CreateUpdateSearcher()
 # Create the update collection object to add our updates to
 $updatesToDownload = New-Object -ComObject 'Microsoft.Update.UpdateColl'
 
-If ($updates = ($updateSearcher.Search($null))) {
-	# Show existing updates before filtering
-	$updates.updates | Select-Object 'Title', 'IsDownloaded'
+$updates = $updateSearcher.Search($null)
 
-	# Filter out just the updates that we want and add them to our collection
-	$updates.updates | Foreach-Object { $updatesToDownload.Add($_) | Out-Null }
+# Filter out just the updates that we want and add them to our collection
+$updates.updates | Foreach-Object { $updatesToDownload.Add($_) | Out-Null }
 
-	# Create the download object, assign our updates to download and initiate the download
-	$downloader         = $updateSession.CreateUpdateDownloader()
-	$downloader.Updates = $updatesToDownload
-	$downloadResult     = $downloader.Download()
+# Create the download object, assign our updates to download and initiate the download
+$downloader         = $updateSession.CreateUpdateDownloader()
+$downloader.Updates = $updatesToDownload
+$downloadResult     = $downloader.Download()
 
-	# Show the updates to verify that they've been downloaded
-	$updates = $updateSearcher.Search($null)
+# Show the updates to verify that they've been downloaded
+Get-WindowsUpdate
 
-	$updates.updates | Select-Object 'Title', 'IsDownloaded'
-}
 #endregion
 
 #region Install the updates locally
@@ -84,25 +80,21 @@ Function Install-WindowsUpdate {
 	.DESCRIPTION
 		Utilizing the built-in Windows COM objects to interact with the Windows Update service install available updates for Windows.
     .EXAMPLE
-        PS> Get-WindowsUpdate
+        PS> Get-WindowsUpdate | Install-WindowsUpdate
 
-	.PARAMETER Updates
-		Return installed updates.
-	.PARAMETER ComputerName
-		The remote system to retrieve updates from, also aliased as 'Name'.
-	.PARAMETER PassThru
-		Pass the unfiltered update objects to the pipeline.
+	.PARAMETER Update
+		The update result object returned by Get-WindowsUpdate
+
+	.PARAMETER AsJob
+		Use the AsJob parameter to run each installation process in a background job.
 	#>
 	[OutputType([pscustomobject])]
 	[CmdletBinding()]
 
 	Param (
-		$Updates,
-
-		[Parameter(ValueFromPipeline)]
+		[Parameter(Manatory, ValueFromPipeline)]
 		[ValidateNotNullOrEmpty()]
-		[Alias("Name")]
-		[String]$ComputerName,
+		[object]$Update,
 
 		[Parameter()]
 		[ValidateNotNullOrEmpty()]
@@ -115,6 +107,7 @@ Function Install-WindowsUpdate {
 
 	process {
 		$scriptBlock = {
+			param($Update)
 			$updateSession = New-Object -ComObject 'Microsoft.Update.Session'
 			$updateSearcher = $updateSession.CreateUpdateSearcher()
 
