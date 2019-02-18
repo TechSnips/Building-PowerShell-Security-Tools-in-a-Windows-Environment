@@ -9,7 +9,7 @@ function New-RecurringScheduledTask {
 		[string]$ComputerName,
 
 		[Parameter(Mandatory)]
-		[string]$ScheduledTaskName,
+		[string]$Name,
 
 		[Parameter(Mandatory)]
 		[ValidateNotNullOrEmpty()]
@@ -37,24 +37,28 @@ function New-RecurringScheduledTask {
 	$createStartSb = {
 		param($taskName, $command, $interval, $time, $taskUser)
 
-		schtasks /create /SC $interval /ST $time /TN "$taskName" /TR "powershell.exe -NonInteractive -NoProfile -EncodedCommand $command" /F /RU $taskUser /RL HIGHEST
-	}
+		## Create the PowerShell script which the scheduled task will execute
+		$scheduledTaskScriptFolder = 'C:\ScheduledTaskScripts'
+		if (-not (Test-Path -Path $scheduledTaskScriptFolder -PathType Container)) {
+			$null = New-Item -Path $scheduledTaskScriptFolder -ItemType Directory
+		}
+		$scriptPath = "$scheduledTaskScriptFolder\$taskName.ps1"
+		Set-Content -Path $scriptPath -Value $command
 
-	$command = $Scriptblock.ToString()
-	$codeBytes = [System.Text.Encoding]::Unicode.GetBytes($command)
-	$encodedCommand = [Convert]::ToBase64String($codeBytes)
+		## Create the scheduled task
+		schtasks /create /SC $interval /ST $time /TN $taskName /TR "powershell.exe -NonInteractive -NoProfile -File `"$scriptPath`"" /F /RU $taskUser /RL HIGHEST
+	}
 
 	$icmParams = @{
 		ComputerName = $ComputerName
 		ScriptBlock  = $createStartSb
-		ArgumentList = $ScheduledTaskName, $encodedCommand, $Interval, $Time
+		ArgumentList = $Name, $Scriptblock.ToString(), $Interval, $Time
 	}
 	if ($PSBoundParameters.ContainsKey('Credential')) {
 		$icmParams.ArgumentList += $RunAsCredential.UserName	
 	} else {
 		$icmParams.ArgumentList += 'SYSTEM'
 	}
-	Write-Verbose -Message "Running code via powershell.exe: [$($command)]"
 	Invoke-Command @icmParams
 	
 }
