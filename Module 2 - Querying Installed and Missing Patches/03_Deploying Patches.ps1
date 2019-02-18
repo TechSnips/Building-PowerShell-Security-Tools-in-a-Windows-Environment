@@ -59,56 +59,6 @@ $ComputerName = 'DC'
 
 #endregion
 
-#region Creating a scheduled task function
-function New-WindowsUpdateScheduledTask {
-	[OutputType([void])]
-	[CmdletBinding()]
-	param
-	(
-		[Parameter(Mandatory)]
-		[System.Management.Automation.Runspaces.PSSession]$Session,
-
-		[Parameter(Mandatory)]
-		[string]$Name,
-
-		[Parameter(Mandatory)]
-		[ValidateNotNullOrEmpty()]
-		[scriptblock]$Scriptblock,
-
-		[Parameter()]
-		[ValidateNotNullOrEmpty()]
-		[pscredential]$Credential
-	)
-
-	$createStartSb = {
-		$taskName = $args[0]
-		$taskArgs = $args[1] -replace '"', '\"'
-		$taskUser = $args[2]
-
-		$tempScript = "$env:TEMP\WUUpdateScript.ps1"
-		Set-Content -Path $tempScript -Value $taskArgs
-
-		schtasks /create /SC ONSTART /TN $taskName /TR "powershell.exe -NonInteractive -NoProfile -File $tempScript" /F /RU $taskUser /RL HIGHEST
-	}
-
-	$command = $Scriptblock.ToString()
-
-	$icmParams = @{
-		Session      = $Session
-		ScriptBlock  = $createStartSb
-		ArgumentList = $Name, $command
-	}
-	if ($PSBoundParameters.ContainsKey('Credential')) {
-		$icmParams.ArgumentList += $Credential.UserName	
-	} else {
-		$icmParams.ArgumentList += 'SYSTEM'
-	}
-	Write-Verbose -Message "Running code via powershell.exe: [$($command)]"
-	Invoke-Command @icmParams
-	
-}
-#endregion
-
 function Install-WindowsUpdate {
 	<#
 		.SYNOPSIS
