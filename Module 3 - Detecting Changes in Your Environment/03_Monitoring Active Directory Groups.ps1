@@ -1,8 +1,9 @@
-## Taking local group changes, functionizing and applying that logic to AD groups
-
-
-
-
+<#
+	Scenario: Taking local group changes, functionizing and applying that logic to AD groups
+		- Create a "template" string of code that will be the PowerShell the scheduled task executes
+		- Replace all of the template variables at run-time
+		- Create a remote scheduled task with the created code snippet
+#>
 
 function New-AdGroupMembershipMonitor {
 	[OutputType('pscustomobject')]
@@ -19,7 +20,12 @@ function New-AdGroupMembershipMonitor {
 
 		[Parameter(Mandatory)]
 		[ValidateNotNullOrEmpty()]
-		[pscustomobject]$Schedule,
+		[ValidateSet('Daily', 'Weekly')]
+		[string]$Interval,
+		
+		[Parameter(Mandatory)]
+		[ValidateNotNullOrEmpty()]
+		[string]$Time,
 
 		[Parameter()]
 		[ValidateNotNullOrEmpty()]
@@ -27,7 +33,10 @@ function New-AdGroupMembershipMonitor {
 	)
 
 	$ErrorActionPreference = 'Stop'
-
+	
+	## Create a big string with template placeholders that will eventually be the PowerShell script
+	## that the scheduled task will execute. We're using |<Placeholder>| strings here to insert
+	## code when the function runs.
 	$monitor = @'
 ## The CSV file that will hold the past states
 $monitorStateFilePath = 'C:\ADGroupMembers.csv'
@@ -54,15 +63,22 @@ if (Compare-Object -ReferenceObject $previousMembers -DifferenceObject $currentM
 	|Action|
 }
 '@
+
+	## Replace the "Action template" code (code that will run when a group membership changes) with
+	## the code in $Action and replace the group name with $GroupName
 	$monitor = $monitor -replace '\|Action\|', $Action.ToString() -replace '\|GroupName\|', $GroupName
+	
+	## Create a new scriptblock from the finished code snippet
 	$monitor = [scriptblock]::Create($monitor)
 
+	## Pass all of the parameters provided via the function to our custom scheduled task function to
+	## quickly create the scheduled task
 	$params = @{
 		Name         = $Name
 		Scriptblock  = $monitor
-		Interval     = $Schedule.Interval
-		Time         = $Schedule.Time
-		ComputerName = $script:monitorServer
+		Interval     = $Interval
+		Time         = $Time
+		ComputerName = 'DC' ## This will be a module-scoped variable in our mini-project
 	}
 	if ($Schedule.DayOfWeek) {
 		$params.DayOfWeek = $Schedule.DayOfWeek
@@ -70,3 +86,18 @@ if (Compare-Object -ReferenceObject $previousMembers -DifferenceObject $currentM
 	New-RecurringScheduledTask @params
 	
 }
+
+## Example usage
+## Action code can be anything. I'm using the BurntToast PowerShell module to kick off a toast notification
+
+## Requirements: Need to have the BurntToast module on the computer that will be displaying the notification
+Install-Module -Name BurntToast
+hostname
+
+$params = @{
+	GroupName = 'Domain Admins'
+	Action    = { Invoke-Command -ComputerName CLIENT -ScriptBlock { Toast -Text 'Domain Admins membership changed!' }}
+	Interval  = 'Daily'
+	Time      = '12:00'
+}
+New-AdGroupMembershipMonitor -GroupName 'Dom'

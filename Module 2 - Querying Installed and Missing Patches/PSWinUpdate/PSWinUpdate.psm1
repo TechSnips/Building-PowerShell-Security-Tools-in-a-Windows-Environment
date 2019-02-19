@@ -1,4 +1,21 @@
-Set-StrictMode -Version Latest;
+Set-StrictMode -Version Latest
+
+
+function Stop-Timer {
+	[OutputType([System.Diagnostics.Stopwatch])]
+	[CmdletBinding()]
+	param (
+		[Parameter(Mandatory)]
+		[System.Diagnostics.Stopwatch]$Timer
+	)
+	process {
+		try {
+			$Timer.Stop()
+		} catch {
+			$PSCmdlet.ThrowTerminatingError($_)
+		}
+	}
+}
 
 #region function Get-WindowsUpdate
 function Get-WindowsUpdate {
