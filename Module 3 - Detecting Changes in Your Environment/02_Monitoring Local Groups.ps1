@@ -39,5 +39,5 @@ $nowMembers
 
 ## Compare and report
 if (Compare-Object -ReferenceObject $previousMembers -DifferenceObject $nowMembers) {
-	Send-Email
+	Send-MailMessage
 }
