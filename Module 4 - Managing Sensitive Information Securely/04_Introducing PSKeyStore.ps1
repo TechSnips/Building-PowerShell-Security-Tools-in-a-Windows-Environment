@@ -1,86 +1,41 @@
-# Setup Variables
-$CertINFPath = Join-Path -Path $env:TEMP -ChildPath 'DocumentEncryption.inf'
-$CertCERPath = Join-Path -Path $env:TEMP -ChildPath 'DocumentEncryption.inf'
-
-# Create the Certificate INF File
-{[Version]
-Signature = "$Windows NT$"
-
-[Strings]
-szOID_ENHANCED_KEY_USAGE = "2.5.29.37"
-szOID_DOCUMENT_ENCRYPTION = "1.3.6.1.4.1.311.80.1"
-
-[NewRequest]
-Subject = "cn=powershellcms@SUNPHOENIX"
-MachineKeySet = false
-KeyLength = 2048
-KeySpec = AT_KEYEXCHANGE
-HashAlgorithm = Sha1
-Exportable = true
-RequestType = Cert
-KeyUsage = "CERT_KEY_ENCIPHERMENT_KEY_USAGE | CERT_DATA_ENCIPHERMENT_KEY_USAGE"
-ValidityPeriod = "Years"
-ValidityPeriodUnits = "1000"
-FriendlyName = "PowerShellCMS"
-
-[Extensions]
-%szOID_ENHANCED_KEY_USAGE% = "{text}%szOID_DOCUMENT_ENCRYPTION%"
-} | Out-File -FilePath $CertINFPath -Force
-
-# Import Certificate
-certreq.exe -new $CertINFPath $CertCERPath
-
-# Cleanup Temporary Files
-@($CertINFPath, $CertCERPath) | Remove-Item -ErrorAction SilentlyContinue
-
-# Create Document Encryption Certificate same as above but via built-in CMDLets
-$CertParams = @{
-    'Subject'           = 'PSDocumentProtection'
-    'CertStoreLocation' = 'Cert:\CurrentUser\My'
-    'KeyUsage'          = @('KeyEncipherment', 'DataEncipherment')
-    'Type'              = 'DocumentEncryptionCert'
-    'KeySpec'           = 'KeyExchange'
-    'KeyExportPolicy'   = 'Exportable'
-    'KeyLength'         = 2048
-    'KeyAlgorithm'      = 'RSA'
-    'NotAfter'          = (Get-Date).AddYears(1000)
-}
-
-New-SelfSignedCertificate @CertParams
-
-# Protect Our Content Using our New Certificate
-$Protected = 'Text to Encrypt' | Protect-CmsMessage -To "*PSDocumentProtection*"
-
-# Show that the content is encrypted
-$Protected
-
-# Get information about the protected certificate
-$Protected | Get-CMSMessage
-
-# Read out the content
-$Protected | Unprotect-CmsMessage
-
+#region Install PSKeyStore
 # https://github.com/pshamus/PSKeystore
 # Not supporting core
-# Install-Module -Name Configuration -RequiredVersion 1.3.0 -Force
-# Install-Module -Name PSKeyStore
+Install-Module -Name Configuration -RequiredVersion 1.3.0 -Force -Scope CurrentUser
 
-New-KeystoreAccessGroup -Name 'foo' -CertificateThumbprint 92B8E1A4169853B165F1B0E8F647075A678175F3
+$URI  = 'https://github.com/pshamus/PSKeystore/archive/master.zip'
+$File = "$($Env:Home)\Documents\WindowsPowerShell\Modules\PSKeyStore.zip"
+Invoke-WebRequest -Uri $URI -OutFile $File
 
-using a certificate with Document Encryption extended key usage attribute
+Expand-Archive -Path $File -DestinationPath "$($Env:Home)\Documents\WindowsPowerShell\Modules"
+
+Move-Item -Path "$($Env:Home)\Documents\WindowsPowerShell\Modules\PSKeystore-master\PSKeyStore" -Destination "$($Env:Home)\Documents\WindowsPowerShell\Modules"
+
+$RemoveFiles = @(
+    'PSKeystore-master'
+    'PSKeySTore.zip'
+)
+
+$RemoveFiles | Foreach-Object { Remove-Item "$($Env:Home)\Documents\WindowsPowerShell\Modules\$($_)" -Confirm:$False -Force -Recurse }
+
+Import-Module PSKeyStore
+#endregion
+
+#region Setup PSKeyStore
+$Certificate = Get-ChildItem -Path 'Cert:\CurrentUser\My' | Where-Object Subject -EQ 'CN=PSDocumentProtection' | Select-Object -Last 1
+
+New-KeystoreAccessGroup -Name 'Secrets' -CertificateThumbprint $Certificate.Thumbprint
 
 Get-KeystoreAccessGroup
-Get-KeystoreAccessGroup -Name 'bar' | Set-KeystoreDefaultAccessGroup
+Get-KeystoreAccessGroup -Name 'Secrets' | Set-KeystoreDefaultAccessGroup
 
-New-KeystoreStore -Name 'foo' -Path 'C:\keystore'
+New-Item -Path "$($Env:USERPROFILE)\Desktop\Secrets" -ItemType Directory
+New-KeystoreStore -Name 'Secrets' -Path "$($Env:USERPROFILE)\Desktop\Secrets"
+Get-KeystoreStore -Name 'Secrets' | Set-KeystoreDefaultStore
+#endregion
 
-Get-KeystoreStore
+#region
+New-KeystoreItem -Name 'TestSecret' -SecretValue (ConvertTo-SecureString "TestValue" -AsPlainText -Force)
 
-Initialize-Keystore
-#The Self store is fixed to $Env:USERPROFILE\Documents\Keystore
-
-
-New-KeystoreItem -Name mysecret -SecretValue (Read-Host -AsSecureString)
-New-KeystoreItem -Name 'mycred' -Credential (Get-Credential)
-
-(Get-KeystoreItem -Name mysecret).GetSecretValueText()
+(Get-KeystoreItem -Name 'TestSecret').GetSecretValueText()
+#endregion

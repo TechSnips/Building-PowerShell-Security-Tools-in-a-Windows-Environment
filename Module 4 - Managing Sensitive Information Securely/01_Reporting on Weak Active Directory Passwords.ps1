@@ -1,91 +1,122 @@
-# placeholder
-
 # DSInternals Module Method
+
+#region Install DSInternals
+Install-Module DSInternals -Force
 Import-Module DSInternals
+#endregion
 
-$DictFile = "C:\pass\passlist.txt"
-$DC = "DomainController"
-$Domain = "DC=domain,DC=local"
-$Dict = Get-Content $DictFile | ConvertTo-NTHashDictionary
+#region DSInternals - Report on Weak Passwords
+# DSInternals Module Method
+$NTLMPasswordHashes = "$($Env:USERPROFILE)\Desktop\passwords.txt" | ConvertTo-NTHashDictionary
 
-Get-ADReplAccount -All -Server $DC -NamingContext $Domain | Test-PasswordQuality -WeakPasswordHashes $Dict -ShowPlainTextPasswords -IncludeDisabledAccounts
+$Params = @{
+    "All"           = $True
+    "Server"        = 'DC'
+    "NamingContext" = 'dc=techsnips,dc=local'
+}
+
+Get-ADReplAccount @Params | Test-PasswordQuality -WeakPasswordHashesFile $NTLMPasswordHashes -IncludeDisabledAccounts
+#endregion
 
 # Normal AD Method
-[void][system.reflection.assembly]::LoadWithPartialName('System.DirectoryServices.AccountManagement')
-$Searcher = [adsisearcher]''
-$Searcher.Filter = '(&(objectclass=user) (objectcategory=person))'
+[Void][System.Reflection.Assembly]::LoadWithPartialName('System.DirectoryServices.AccountManagement')
+
+$Searcher = [ADSISearcher]''
+
+$Searcher.Filter   = '(&(objectclass=user) (objectcategory=person))'
 $Searcher.PageSize = 500
-$Searcher.FindAll() | ForEach-Object -Begin {
-    $DS = New-Object System.DirectoryServices.AccountManagement.PrincipalContext('domain')
-} -Process {
-    if ($DS.ValidateCredentials($_.properties.samaccountname, 'password')) {
-        New-Object -TypeName PSCustomObject -Property @{
-            samaccountname = -join $_.properties.samaccountname
-            ldappath       = $_.path
-            weakpassword   = $true
+
+$Searcher.FindAll() | ForEach-Object
+-Begin {
+    $DS        = New-Object System.DirectoryServices.AccountManagement.PrincipalContext('domain')
+    $Passwords = Get-Content -Path "$($Env:USERPROFILE)\Desktop\passwords.txt"
+}
+-Process {
+    $Account = $_
+
+    $Passwords | ForEach-Object {
+        $Password = $_
+
+        If ($DS.ValidateCredentials($Account.properties.samaccountname, $Password)) {
+            [PSCustomObject]@{
+                'SamAccountName' = $Account.properties.samaccountname
+                'LDAPPath'       = $Account.path
+                'WeakPassword'   = $True
+            }
+
+            Return
         }
     }
 }
 
-# Find Users with PASSWD_NOTREQD flag
-# Modify Attribute Editor -> userAccountControl = 544 (Enabled, password not required) or 546 (Disabled, password not required)
+#region Find PASSWD_NOTREQD Acconts
+$Domain = 'dc=techsnips,dc=local'
 
-# Create admin folder
-New-Item -Path c:\admin -ItemType directory -force
-# Get domain dn
-$domainDN = get-addomain | select -ExpandProperty DistinguishedName
 # Save pwnotreq users to txt
-Get-ADUser -Properties Name, distinguishedname, useraccountcontrol, objectClass -LDAPFilter "(&(userAccountControl:1.2.840.113556.1.4.803:=32)(!(IsCriticalSystemObject=TRUE)))" -SearchBase "$domainDN" | select SamAccountName, Name, useraccountcontrol, distinguishedname >C:\admin\PwNotReq.txt
-# Output pwnotreq users in grid view
-Get-ADUser -Properties Name, distinguishedname, useraccountcontrol, objectClass -LDAPFilter "(&(userAccountControl:1.2.840.113556.1.4.803:=32)(!(IsCriticalSystemObject=TRUE)))" -SearchBase "$domainDN" | select SamAccountName, Name, useraccountcontrol, distinguishedname | Out-GridView
+$Params = @{
+    "Properties" = @('name', 'distinguishedname', 'useraccountcontrol', 'objectClass')
+    "LDAPFilter" = '(&(userAccountControl:1.2.840.113556.1.4.803:=32)(!(IsCriticalSystemObject=TRUE)))'
+    "SearchBase" = $Domain
+}
 
-# To Fix
-Set-ADAccountControl $user -PasswordNotRequired $false
+$Users = Get-ADUser @Params | Select-Object SamAccountName, Name, UserAccountControl, DistinguishedName
+$Users | Out-GridView
 
+$Users | Foreach-Object { Set-ADAccountControl $_.Name -PasswordNotRequired $False }
+#endregion
+
+#region Test Password Strength Function
 # Testing Password Strength in a Function
 # http://www.checkyourlogs.net/?p=38333
-Function Test-PasswordForDomain {
+Function Test-DomainPassword {
     Param (
-        [Parameter(Mandatory=$true)][string]$Password,
-        [Parameter(Mandatory=$false)][string]$AccountSamAccountName = "",
-        [Parameter(Mandatory=$false)][string]$AccountDisplayName,
+        [Parameter(Mandatory)]
+        [String]$Password,
+
+        [Parameter(Mandatory)]
+        [String]$Account,
+
         [Microsoft.ActiveDirectory.Management.ADEntity]$PasswordPolicy = (Get-ADDefaultDomainPasswordPolicy -ErrorAction SilentlyContinue)
     )
-<#
-    Rest of the code in the blog goes here
-#>
-    return $false
-}
 
-    return $false
-}
+    Process {
+        $Account = Get-ADUser $Account
 
-If ($Password.Length -lt $PasswordPolicy.MinPasswordLength) {
-    return $false
-}
+        If ($Account) {
+            If ($Password.Length -LT $PasswordPolicy.MinPasswordLength) {
+                Write-Warning "Password under minimum password length: $($PasswordPolicy.MinPasswordLength)"
+                Return $False
+            }
 
-if (($AccountSamAccountName) -and ($Password -match "$AccountSamAccountName")) {
-    return $false
-}
+            If (($Account.SamAccountName) -And ($Password -match $Account.SamAccountName)) {
+                Write-Warning "Password matches SamAccountName"
+                Return $False
+            }
 
-if ($AccountDisplayName) {
-    $tokens = $AccountDisplayName.Split(",.-,_ #`t")
-    foreach ($token in $tokens) {
-        if (($token) -and ($Password -match "$token")) {
-            return $false
+            If ($Account.DisplayName) {
+                $tokens = ($Account.DisplayName).Split(",.-,_ #`t")
+
+                Foreach ($token In $tokens) {
+                    If (($token) -And ($Password -Match "$token")) {
+                        Write-Warning "Username is contained within Password"
+                        Return $False
+                    }
+                }
+            }
+
+            If ($PasswordPolicy.ComplexityEnabled -eq $true) {
+                If (
+                    ($Password -cmatch "[A-Z\p{Lu}\s]") `
+                    -And ($Password -cmatch "[a-z\p{Ll}\s]") `
+                    -And ($Password -match "[\d]") `
+                    -And ($Password -match "[^\w]")
+                ) {
+                    Return $True
+                }
+            } Else {
+                Return $False
+            }
         }
     }
 }
-
-    if ($PasswordPolicy.ComplexityEnabled -eq $true) {
-        If (
-                 ($Password -cmatch "[A-Z\p{Lu}\s]") `
-            -and ($Password -cmatch "[a-z\p{Ll}\s]") `
-            -and ($Password -match "[\d]") `
-            -and ($Password -match "[^\w]")
-        ) {
-            return $true
-        }
-    } else {
-        return $false
-    }
+#endregion

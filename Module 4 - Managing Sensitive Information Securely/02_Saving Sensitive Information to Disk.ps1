@@ -3,16 +3,68 @@
 # Import/Export-CLIXml
 # Secure Strings, Creating and Decrypting
 
-# https://docs.microsoft.com/en-us/powershell/module/pkiclient/new-selfsignedcertificate?view=win10-ps
-Import-Module PKIClient
+#region Create Certificate
+# Setup Variables
+$CertINFPath = Join-Path -Path $env:TEMP -ChildPath 'DocumentEncryption.inf'
+$CertCERPath = Join-Path -Path $env:TEMP -ChildPath 'DocumentEncryption.inf'
 
-New-SelfSignedCertificate -DnsName "www.fabrikam.com", "www.contoso.com" -CertStoreLocation "cert:\LocalMachine\My"
-PS C:\> Set-Location -Path "cert:\LocalMachine\My"
-PS Cert:\LocalMachine\My> $OldCert = (Get-ChildItem -Path E42DBC3B3F2771990A9B3E35D0C3C422779DACD7)
-PS Cert:\LocalMachine\My> New-SelfSignedCertificate -CloneCert $OldCert
+# Create the Certificate INF File
+{[Version]
+    Signature = "$Windows NT$"
 
-PS C:\>New-SelfSignedCertificate -Type Custom -Subject "E=patti.fuller@contoso.com,CN=Patti Fuller" -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.4", "2.5.29.17={text}email=patti.fuller@contoso.com&upn=pattifuller@contoso.com") -KeyUsage DataEncipherment -KeyAlgorithm RSA -KeyLength 2048 -SmimeCapabilities -CertStoreLocation "Cert:\CurrentUser\My"
+    [Strings]
+    szOID_ENHANCED_KEY_USAGE = "2.5.29.37"
+    szOID_DOCUMENT_ENCRYPTION = "1.3.6.1.4.1.311.80.1"
 
-PS C:\>New-SelfSignedCertificate -Type Custom -Subject "CN=Patti Fuller,OU=UserAccounts,DC=corp,DC=contoso,DC=com" -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.2", "2.5.29.17={text}upn=pattifuller@contoso.com") -KeyUsage DigitalSignature -KeyAlgorithm RSA -KeyLength 2048 -CertStoreLocation "Cert:\CurrentUser\My"
+    [NewRequest]
+    Subject = "cn=powershellcms@SUNPHOENIX"
+    MachineKeySet = false
+    KeyLength = 2048
+    KeySpec = AT_KEYEXCHANGE
+    HashAlgorithm = Sha1
+    Exportable = true
+    RequestType = Cert
+    KeyUsage = "CERT_KEY_ENCIPHERMENT_KEY_USAGE | CERT_DATA_ENCIPHERMENT_KEY_USAGE"
+    ValidityPeriod = "Years"
+    ValidityPeriodUnits = "1000"
+    FriendlyName = "PowerShellCMS"
 
-PS C:\>New-SelfSignedCertificate -Type Custom -Subject "CN=Patti Fuller,OU=UserAccounts,DC=corp,DC=contoso,DC=com" -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.2", "2.5.29.17={text}upn=pattifuller@contoso.com") -KeyUsage DigitalSignature -KeyAlgorithm ECDSA_nistP256 -CurveExport CurveName -CertStoreLocation "Cert:\CurrentUser\My"
+    [Extensions]
+    %szOID_ENHANCED_KEY_USAGE% = "{text}%szOID_DOCUMENT_ENCRYPTION%"
+} | Out-File -FilePath $CertINFPath -Force
+
+# Import Certificate
+certreq.exe -new $CertINFPath $CertCERPath
+
+# Cleanup Temporary Files
+@($CertINFPath, $CertCERPath) | Remove-Item -ErrorAction SilentlyContinue
+
+# Create Document Encryption Certificate same as above but via built-in CMDLets
+$CertParams = @{
+    'Subject'           = 'PSDocumentProtection'
+    'CertStoreLocation' = 'Cert:\CurrentUser\My'
+    'KeyUsage'          = @('KeyEncipherment', 'DataEncipherment')
+    'Type'              = 'DocumentEncryptionCert'
+    'KeySpec'           = 'KeyExchange'
+    'KeyExportPolicy'   = 'Exportable'
+    'KeyLength'         = 2048
+    'KeyAlgorithm'      = 'RSA'
+    'NotAfter'          = (Get-Date).AddYears(1000)
+}
+
+New-SelfSignedCertificate @CertParams
+#endregion
+
+#region Protect Message Using CMS
+# Protect Our Content Using our New Certificate
+$Protected = 'Text to Encrypt' | Protect-CmsMessage -To "*PSDocumentProtection*"
+
+# Show that the content is encrypted
+$Protected
+
+# Get information about the protected certificate
+$Protected | Get-CMSMessage
+
+# Read out the content
+$Protected | Unprotect-CmsMessage
+#endregion
