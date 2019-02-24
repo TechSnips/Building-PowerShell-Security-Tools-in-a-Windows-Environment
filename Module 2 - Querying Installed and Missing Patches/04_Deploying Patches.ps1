@@ -8,7 +8,7 @@
 
 #region Download updates
 
-## Let's first check for any missing updates
+## Let's first check for any missing updates. We have one that's not downloaded and installed
 Get-WindowsUpdate
 
 $updateSession    = New-Object -ComObject 'Microsoft.Update.Session'
@@ -54,7 +54,55 @@ Get-WindowsUpdate
 #region Install updates remotely
 
 $ComputerName = 'DC'
+Get-WindowsUpdate -ComputerName $ComputerName
 
+$scriptBlock = {
+	$updateSession = New-Object -ComObject 'Microsoft.Update.Session';
+	$objSearcher = $updateSession.CreateUpdateSearcher()
+	$updates = $objSearcher.Search('IsInstalled=0')
+	$updates = $updates.Updates
+
+	$downloader = $updateSession.CreateUpdateDownloader()
+	### Other code to download and install updates here ###
+}
+
+## Attempt this the "usual" way even if we're an admin on the remote computer, we'll get Access Denied
+Invoke-Command -ComputerName $ComputerName -ScriptBlock $scriptBlock
+
+#region Creating a scheduled task running as SYSTEM to get around getting denied
+$taskParams = @{
+	Session     = $session
+	Name        = $TaskName
+	Scriptblock = $scriptBlock
+}
+Write-Verbose -Message 'Creating scheduled task...'
+
+$createStartSb = {
+	$taskName = $args[0]
+	$taskArgs = $args[1] -replace '"', '\"'
+	$taskUser = $args[2]
+
+	$tempScript = "$env:TEMP\WUUpdateScript.ps1"
+	Set-Content -Path $tempScript -Value $taskArgs
+
+	schtasks /create /SC ONSTART /TN $taskName /TR "powershell.exe -NonInteractive -NoProfile -File $tempScript" /F /RU $taskUser /RL HIGHEST
+}
+
+$command = $Scriptblock.ToString()
+
+$icmParams = @{
+	Session      = $Session
+	ScriptBlock  = $createStartSb
+	ArgumentList = $Name, $command
+}
+if ($PSBoundParameters.ContainsKey('Credential')) {
+	$icmParams.ArgumentList += $Credential.UserName	
+} else {
+	$icmParams.ArgumentList += 'SYSTEM'
+}
+Write-Verbose -Message "Running code via powershell.exe: [$($command)]"
+Invoke-Command @icmParams
+#endregion
 
 
 #endregion

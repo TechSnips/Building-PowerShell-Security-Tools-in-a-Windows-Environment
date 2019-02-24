@@ -70,6 +70,9 @@ $icmParams = @{
 }
 Invoke-Command @icmParams
 
+## test file doesn't exist
+Test-Path -Path "\\DC\c$\testing123.txt"
+
 ## Check out the task created and run it
 control schedtasks
 
@@ -105,7 +108,7 @@ function New-RecurringScheduledTask {
 
 		[Parameter(Mandatory)]
 		[ValidateNotNullOrEmpty()]
-		[ValidateSet('Daily', 'Weekly')] ## This can be other intervals but we're limiting to just these for now
+		[ValidateSet('Daily', 'Weekly', 'Once')] ## This can be other intervals but we're limiting to just these for now
 		[string]$Interval,
 
 		[Parameter(Mandatory)]
@@ -134,7 +137,7 @@ function New-RecurringScheduledTask {
 		Set-Content -Path $scriptPath -Value $command
 
 		## Create the scheduled task
-		schtasks /create /SC $interval /ST $time /TN $taskName /TR "powershell.exe -NonInteractive -NoProfile -File `"$scriptPath`"" /F /RU $taskUser /RL HIGHEST
+		schtasks /create /SC $interval /ST $time /TN `"$taskName`" /TR "powershell.exe -NonInteractive -NoProfile -File `"$scriptPath`"" /F /RU $taskUser /RL HIGHEST
 	}
 
 	$icmParams = @{
@@ -150,4 +153,16 @@ function New-RecurringScheduledTask {
 	Invoke-Command @icmParams
 	
 }
+
+
+$params = @{
+	ComputerName = 'DC'
+	Name         = 'Testing123'
+	ScriptBlock  = { Add-Content -Path 'C:\testing123.txt' -Value 'Created with PowerShell' }
+	Interval     = 'Once'
+	Time         = '12:00'
+}
+New-RecurringScheduledTask @params
+
+Get-Content -Path '\\DC\c$\testing123.txt'
 #endregion
