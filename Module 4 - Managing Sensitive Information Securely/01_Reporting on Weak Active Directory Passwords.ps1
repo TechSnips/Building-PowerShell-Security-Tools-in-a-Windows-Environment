@@ -7,15 +7,13 @@ Import-Module DSInternals
 
 #region DSInternals - Report on Weak Passwords
 # DSInternals Module Method
-$NTLMPasswordHashes = "$($Env:USERPROFILE)\Desktop\passwords.txt" | ConvertTo-NTHashDictionary
-
 $Params = @{
     "All"           = $True
     "Server"        = 'DC'
     "NamingContext" = 'dc=techsnips,dc=local'
 }
 
-Get-ADReplAccount @Params | Test-PasswordQuality -WeakPasswordHashesFile $NTLMPasswordHashes -IncludeDisabledAccounts
+Get-ADReplAccount @Params | Test-PasswordQuality -WeakPasswordsFile $NTLMPasswordHashes -IncludeDisabledAccounts
 #endregion
 
 # Normal AD Method
@@ -26,12 +24,10 @@ $Searcher = [ADSISearcher]''
 $Searcher.Filter   = '(&(objectclass=user) (objectcategory=person))'
 $Searcher.PageSize = 500
 
-$Searcher.FindAll() | ForEach-Object
--Begin {
+$Searcher.FindAll() | ForEach-Object {
     $DS        = New-Object System.DirectoryServices.AccountManagement.PrincipalContext('domain')
     $Passwords = Get-Content -Path "$($Env:USERPROFILE)\Desktop\passwords.txt"
-}
--Process {
+} {
     $Account = $_
 
     $Passwords | ForEach-Object {
