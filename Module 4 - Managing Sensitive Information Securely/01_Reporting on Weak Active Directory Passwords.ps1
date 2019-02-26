@@ -7,13 +7,16 @@ Import-Module DSInternals
 
 #region DSInternals - Report on Weak Passwords
 # DSInternals Module Method
+
+$Passwords = "$($ENV:USERProfile)\Desktop\passwords.txt"
+
 $Params = @{
     "All"           = $True
     "Server"        = 'DC'
     "NamingContext" = 'dc=techsnips,dc=local'
 }
 
-Get-ADReplAccount @Params | Test-PasswordQuality -WeakPasswordsFile $NTLMPasswordHashes -IncludeDisabledAccounts
+Get-ADReplAccount @Params | Test-PasswordQuality -WeakPasswordsFile $Passwords -IncludeDisabledAccounts
 #endregion
 
 # Normal AD Method
