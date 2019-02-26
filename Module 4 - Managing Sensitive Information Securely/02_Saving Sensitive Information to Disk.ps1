@@ -17,7 +17,7 @@ $CertCERPath = Join-Path -Path $env:TEMP -ChildPath 'DocumentEncryption.inf'
     szOID_DOCUMENT_ENCRYPTION = "1.3.6.1.4.1.311.80.1"
 
     [NewRequest]
-    Subject = "cn=powershellcms@SUNPHOENIX"
+    Subject = "cn=powershellcms@COMPUTER"
     MachineKeySet = false
     KeyLength = 2048
     KeySpec = AT_KEYEXCHANGE
@@ -71,7 +71,7 @@ $Protected | Unprotect-CmsMessage
 
 #region Import/Export CLIXML
 # Encrypt Data
-$Path = "$($Env:Home)\Desktop\Credential.xml"
+$Path = "$($Env:USERPROFILE)\Desktop\Credential.xml"
 Get-Credential | Export-Clixml -Path $Path
 
 # Show Encrypted Values
@@ -84,23 +84,23 @@ $Credential.GetNetworkCredential().Password
 #endregion
 
 #region Create Secure Strings
-$Path = "$($Env:Home)\Desktop\SecureString.txt"
+$Path = "$($Env:USERPROFILE)\Desktop\SecureString.txt"
 
 # Save Secure String to a File
-'MyAPIKey' |  ConvertTo-SecureString -AsPlainText -Force | ConvertFrom-SecureString | Set-Content -Path $Path
+'MyAPIKey' | ConvertTo-SecureString -AsPlainText -Force | ConvertFrom-SecureString | Set-Content -Path $Path
 
 # Show Value is Encrypted
 Get-Content -Path $Path
 
 # Retrieve Saved Secure String and Save to a Variable
-$SecureString = Get-Content  -Path $Path | ConvertTo-SecureString
+$SecureString = Get-Content -Path $Path | ConvertTo-SecureString
 
 [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR((($SecureString))))
 #endregion
 
 #region Using AES Key
-$AESKeyPath = "$($Env:HOME)\Desktop\aes.key"
-$PassPath   = "$($Env:HOME)\Desktop\password.txt"
+$AESKeyPath = "$($Env:USERPROFILE)\Desktop\aes.key"
+$PassPath   = "$($Env:USERPROFILE)\Desktop\password.txt"
 
 # Use RNGCryptoServiceProvider instead of Get-Random (better random number generator)
 # AES is a subset of Rijndael

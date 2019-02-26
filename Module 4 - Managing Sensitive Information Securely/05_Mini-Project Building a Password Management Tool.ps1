@@ -1,11 +1,12 @@
 # Functions
 # 1) New-DocumentProtectionCertificate
 # 2) Get-DocumentProtectionCertificate
-# 3) Protect-Item
-# 4) Unprotect-Item
+# 3) New-AESKey
+# 4) Protect-Item
+# 5) Unprotect-Item
 
 #region New-DocumentProtectionCertficate
-Function New-DocumentProtectionCertficate {
+Function New-DocumentProtectionCertificate {
 	[OutputType([System.Security.Cryptography.X509Certificates.X509Certificate2])]
     [CmdletBinding()]
 
@@ -17,9 +18,10 @@ Function New-DocumentProtectionCertficate {
         $Subject = "PSDocumentProtection",
 
         [Parameter()]
-        $Years = (Get-Date).AddYears(1000),
+        [DateTime]$Years = (Get-Date).AddYears(1000),
 
         [Parameter()]
+        [ValidateSet("1028","2048","4096")]
         $KeyLength = 2048,
 
         [Switch]$PassThru
@@ -84,6 +86,24 @@ Function Get-DocumentProtectionCertficate {
 }
 #endregion
 
+#region New-AESKey
+Function New-AESKey {
+	[OutputType([System.Management.Automation.PSObject])]
+    [CmdletBinding()]
+
+    Param (
+        [Parameter(Mandatory, ValueFromPipeline)]
+        $Path
+    )
+
+    Process {
+        $Key = [System.Byte[]]::New(32)
+        [Security.Cryptography.RNGCryptoServiceProvider]::Create().GetBytes($Key)
+        $Key | Out-File $Path
+    }
+}
+#endregion
+
 #region Protect-Item
 Function Protect-Item {
 	[OutputType([System.Management.Automation.PSObject])]
@@ -112,23 +132,21 @@ Function Protect-Item {
     Process {
         Switch ($Method) {
             "CMS" {
-                $Content | Protect-CmsMessage -To ($Thumbprint -Replace '(..(?!$))','$1 ') -OutFile $Path
+                If ((Get-Location).Drive -EQ "Cert") {
+                    Write-Error "Cannot Encrypt Using a Thumbprint when Location is in Cert Provider"
+                }
+
+                $Content | Protect-CmsMessage -To $Thumbprint -OutFile $Path
 
                 Break
             }
             "DPAPI" {
-                $Content | ConvertTo-SecureString -AsPlainText -Force | Export-CliXML -Path $Path
+                $Content | ConvertTo-SecureString -AsPlainText -Force | ConvertFrom-SecureString | Set-Content -Path $Path
 
                 Break
             }
             "AES" {
-                If (-Not (Test-Path $KeyPath) -And -Not $Force) {
-                    $Key = [System.Byte[]]::New(32)
-                    [Security.Cryptography.RNGCryptoServiceProvider]::Create().GetBytes($Key)
-                    $Key | Out-File $KeyPath
-                }
-
-                $Content | ConvertFrom-SecureString -Key (Get-Content $KeyPath) | Set-Content -Path $Path
+                $Content | ConvertTo-SecureString -AsPlainText -Force | ConvertFrom-SecureString -Key (Get-Content $KeyPath) | Set-Content -Path $Path
 
                 Break
             }
@@ -158,7 +176,11 @@ Function Unprotect-Item {
     Process {
         Switch ($Method) {
             "CMS" {
-                $Content | Protect-CmsMessage -To ($Thumbprint -Replace '(..(?!$))', '$1 ') -OutFile $Path
+                If ((Get-Location).Drive -EQ "Cert") {
+                    Write-Error "Cannot Decrypt Using a Thumbprint when Location is in Cert Provider"
+                }
+
+                Get-Content -Path $Path | Unprotect-CmsMessage -To $Thumbprint
 
                 Break
             }
@@ -181,4 +203,26 @@ Function Unprotect-Item {
         }
     }
 }
+#endregion
+
+#region Examples
+$AESPath = "$($Env:USERPROFILE)\Desktop\AES.key"
+New-AESKey -Path $AESPath
+
+$Certificate = New-DocumentProtectionCertificate -PassThru
+
+Get-DocumentProtectionCertficate | Select-Object Subject, Thumbprint
+
+$DPAPIPassPath = "$($Env:USERPROFILE)\Desktop\DPAPI.txt"
+$CMSPassPath   = "$($Env:USERPROFILE)\Desktop\CMS.txt"
+$AESPassPath   = "$($Env:USERPROFILE)\Desktop\AES.txt"
+
+"MyPasswordDPAPI" | Protect-Item -Path $DPAPIPassPath
+Unprotect-Item -Path $DPAPIPassPath
+
+"MyPasswordCMS" | Protect-Item -Path $CMSPassPath -Method CMS -Thumbprint $Certificate.Thumbprint
+Unprotect-Item -Path $CMSPassPath -Thumbprint $Certificate.Thumbprint -Method CMS
+
+"MyPasswordAES" | Protect-Item -Path $AESPassPath -Method AES -KeyPath $AESPath
+Unprotect-Item -Path $AESPassPath -KeyPath $AESPath -Method AES
 #endregion
