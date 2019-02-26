@@ -344,7 +344,7 @@ New-AESKey -Path $AESPath
 
 $Certificate = New-DocumentProtectionCertificate -PassThru
 
-Get-DocumentProtectionCertficate | Select-Object Subject, Thumbprint
+Get-DocumentProtectionCertificate | Select-Object Subject, Thumbprint
 
 $DPAPIPassPath = "$($Env:USERPROFILE)\Desktop\DPAPI.txt"
 $CMSPassPath   = "$($Env:USERPROFILE)\Desktop\CMS.txt"
