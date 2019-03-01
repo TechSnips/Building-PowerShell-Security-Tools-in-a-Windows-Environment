@@ -11,7 +11,9 @@
 
 ## Create a demo text file
 $filePath = 'C:\SuperSecretSensitiveInfo.txt'
-Add-Content -Path $filePath -Value 'FROM: Manager - Adam needs to receive more money!'
+Set-Content -Path $filePath -Value 'FROM: Manager - Adam needs to receive more money!'
+
+Get-Content -Path $filePath
 
 #region The monitoring event
 
@@ -73,11 +75,33 @@ $monitor = {
 }
 
 $params = @{
-	Name        = 'Basic File Monitor'
-	Scriptblock = $scriptblock
-	Interval    = 'Daily'
-	Time        = '12:00'
+	ComputerName = 'DC'
+	Name         = 'BasicFileMonitor'
+	Scriptblock  = $monitor
+	Interval     = 'Daily'
+	Time         = '12:00'
 }
-New-RecurringScheduledTask @params
+New-PsScheduledTask @params
+
+## Secret file on remote server
+Get-Content -Path '\\DC\c$\SuperSecretSensitiveInfo.txt'
+
+## No monitor state file
+Test-Path -Path '\\DC\c$\MonitorState.txt'
+
+## Manually run the task to capture the first state
+Invoke-Command -ComputerName DC -ScriptBlock { Start-ScheduledTask -TaskName 'BasicFileMonitor' }
+
+## Monitor file exists now with the current hash
+Get-Content -Path '\\DC\c$\MonitorState.txt'
+
+## Change the file
+Set-Content -Path '\\DC\c$\SuperSecretSensitiveInfo.txt' -Value 'I see this --bad guy'
+
+## Manually run the scheduled task again to capture state, compare and take action
+Invoke-Command -ComputerName DC -ScriptBlock { Start-ScheduledTask -TaskName 'BasicFileMonitor' }
+
+## Check the monitor report file
+Get-Content -Path '\\DC\c$\MonitorReport.txt'
 
 #endregion

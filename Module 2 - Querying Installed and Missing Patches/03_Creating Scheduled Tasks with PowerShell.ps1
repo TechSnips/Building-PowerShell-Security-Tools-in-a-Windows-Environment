@@ -6,6 +6,8 @@
 #>
 
 #region Creating a local scheduled task to kick off a PowerShell script
+
+## Creating a simple PowerShell script to create a file
 $scriptPath = 'C:\CreateFile.ps1'
 $testFilePath = 'C:\testing123.txt'
 Add-Content -Path $scriptPath -Value "Add-Content -Path $testFilePath -Value 'created via PowerShell'"
@@ -20,14 +22,16 @@ Get-Content -Path $testFilePath
 ## Remove the test file to create it via the scheduled task
 Remove-Item -Path $testFilePath
 
-## Create a scheduled task to launch a script every day
+#endregion
+
+#region Create a scheduled task to launch a script every day
 
 ## The test file doesn't exist
 Test-Path -Path $testFilePath
 
 $interval = 'Daily'
 $time = '12:00'
-$taskName = 'Testing 123'
+$taskName = 'Testing123'
 $taskUser = 'SYSTEM'
 
 schtasks /create /SC $interval /ST $time /TN $taskName /TR "powershell.exe -NonInteractive -NoProfile -File `"$scriptPath`"" /F /RU $taskUser /RL HIGHEST
@@ -47,7 +51,7 @@ $createStartSb = {
 
 	$interval = 'Daily'
 	$time = '12:00'
-	$taskName = 'Testing 123'
+	$taskName = 'Testing123'
 	$taskUser = 'SYSTEM'
 
 	## Create the PowerShell script which the scheduled task will execute
@@ -81,16 +85,13 @@ Get-Content -Path "\\DC\c$\testing123.txt"
 
 #endregion
 
-
-
-
 #region Creating a scheduled task function
 
 ## This is where we "parameterize" creating a scheduled task on a remote computer by allowing dynamic
 ## input like scheduled task name, the contents of the PowerShell script, interval, time, etc. We pass
 ## in all of this information at run-time.
 
-function New-RecurringScheduledTask {
+function New-PsScheduledTask {
 	[OutputType([void])]
 	[CmdletBinding()]
 	param
@@ -138,6 +139,7 @@ function New-RecurringScheduledTask {
 
 		## Create the scheduled task
 		schtasks /create /SC $interval /ST $time /TN `"$taskName`" /TR "powershell.exe -NonInteractive -NoProfile -File `"$scriptPath`"" /F /RU $taskUser /RL HIGHEST
+		
 	}
 
 	$icmParams = @{
@@ -145,11 +147,12 @@ function New-RecurringScheduledTask {
 		ScriptBlock  = $createStartSb
 		ArgumentList = $Name, $Scriptblock.ToString(), $Interval, $Time
 	}
-	if ($PSBoundParameters.ContainsKey('Credential')) {
+	if ($PSBoundParameters.ContainsKey('RunAsCredential')) {
 		$icmParams.ArgumentList += $RunAsCredential.UserName	
 	} else {
 		$icmParams.ArgumentList += 'SYSTEM'
 	}
+	
 	Invoke-Command @icmParams
 	
 }
@@ -160,9 +163,14 @@ $params = @{
 	Name         = 'Testing123'
 	ScriptBlock  = { Add-Content -Path 'C:\testing123.txt' -Value 'Created with PowerShell' }
 	Interval     = 'Once'
-	Time         = '12:00'
+	Time         = '1:00'
 }
-New-RecurringScheduledTask @params
+New-PsScheduledTask @params
+
+## Start the scheduled task
+Invoke-Command -ComputerName DC -ScriptBlock { Start-ScheduledTask -TaskName 'Testing123' }
+
+control schedtasks
 
 Get-Content -Path '\\DC\c$\testing123.txt'
 #endregion

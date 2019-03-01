@@ -1,5 +1,6 @@
 <#
-	Scenario: Taking local group changes, functionizing and applying that logic to AD groups
+	Scenario: 
+		- Taking local group changes, functionizing and applying that logic to AD groups
 		- Create a "template" string of code that will be the PowerShell the scheduled task executes
 		- Replace all of the template variables at run-time
 		- Create a remote scheduled task with the created code snippet
@@ -7,12 +8,16 @@
 
 function New-AdGroupMembershipMonitor {
 	[OutputType('pscustomobject')]
-	[CmdletBinding(SupportsShouldProcess)]
+	[CmdletBinding()]
 	param
 	(
 		[Parameter(Mandatory)]
 		[ValidateNotNullOrEmpty()]
 		[string]$GroupName,
+
+		[Parameter(Mandatory)]
+		[ValidateNotNullOrEmpty()]
+		[string]$ComputerName,
 
 		[Parameter(Mandatory)]
 		[ValidateNotNullOrEmpty()]
@@ -78,26 +83,43 @@ if (Compare-Object -ReferenceObject $previousMembers -DifferenceObject $currentM
 		Scriptblock  = $monitor
 		Interval     = $Interval
 		Time         = $Time
-		ComputerName = 'DC' ## This will be a module-scoped variable in our mini-project
+		ComputerName = $ComputerName ## This will be a module-scoped variable in our mini-project
 	}
 	if ($Schedule.DayOfWeek) {
 		$params.DayOfWeek = $Schedule.DayOfWeek
 	}
-	New-RecurringScheduledTask @params
+	New-PsScheduledTask @params
 	
 }
 
 ## Example usage
-## Action code can be anything. I'm using the BurntToast PowerShell module to kick off a toast notification
+## Action code can be anything.
 
-## Requirements: Need to have the BurntToast module on the computer that will be displaying the notification
-Install-Module -Name BurntToast
-hostname
+## Ensure the text file that will store monitor states is gone
+Remove-Item -Path '\\DC\c$\ADGroupMembers.csv'
+
+$action = {
+	$now = Get-Date -UFormat '%m-%d-%y %H:%M'
+	[pscustomobject]@{
+		'Time'    = $now
+		'Members' = 'Membership changed!'
+	} | Export-Csv -Path 'C:\DomainAdminGroupChanges.csv' -NoTypeInformation -Append
+}
 
 $params = @{
 	GroupName = 'Domain Admins'
-	Action    = { Invoke-Command -ComputerName CLIENT -ScriptBlock { Toast -Text 'Domain Admins membership changed!' }}
+	Action    = $action
 	Interval  = 'Daily'
 	Time      = '12:00'
 }
-New-AdGroupMembershipMonitor -GroupName 'Dom'
+New-AdGroupMembershipMonitor @params
+
+## Start the scheduled task manually to invoke the monitor
+Invoke-Command -ComputerName DC -ScriptBlock {Start-ScheduledTask -TaskName 'AD_Group_Domain_Admins_Monitor' }
+
+## Add an object to Domain Admins
+dsa.msc
+
+## Check the monitor states and notifications text files
+Import-Csv -Path '\\DC\c$\ADGroupMembers.csv'
+Import-Csv -Path '\\DC\c$\DomainAdminGroupChanges.csv'
