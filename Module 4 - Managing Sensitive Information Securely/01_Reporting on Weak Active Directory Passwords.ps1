@@ -11,111 +11,85 @@ Import-Module DSInternals
 $Passwords = "$($ENV:USERProfile)\Desktop\passwords.txt"
 
 $Params = @{
-    "All"           = $True
-    "Server"        = 'DC'
-    "NamingContext" = 'dc=techsnips,dc=local'
+	"All"           = $True
+	"Server"        = 'DC'
+	"NamingContext" = 'dc=techsnips,dc=local'
 }
 
 Get-ADReplAccount @Params | Test-PasswordQuality -WeakPasswordsFile $Passwords -IncludeDisabledAccounts
 #endregion
 
-# Normal AD Method
-[Void][System.Reflection.Assembly]::LoadWithPartialName('System.DirectoryServices.AccountManagement')
+#region Find PASSWD_NOTREQD Accounts
 
-$Searcher = [ADSISearcher]''
+## More information: https://blogs.technet.microsoft.com/pfesweplat/2012/12/10/do-you-allow-blank-passwords-in-your-domain/
 
-$Searcher.Filter   = '(&(objectclass=user) (objectcategory=person))'
-$Searcher.PageSize = 500
+## Set a test user to not require a password
+Set-ADAccountControl 'jjones' -PasswordNotRequired $true
 
-$Searcher.FindAll() | ForEach-Object {
-    $DS        = New-Object System.DirectoryServices.AccountManagement.PrincipalContext('domain')
-    $Passwords = Get-Content -Path "$($Env:USERPROFILE)\Desktop\passwords.txt"
-} {
-    $Account = $_
+## Contruct an LDAP filter to return users with the appropriate UAC flag and run Get-AdUser
 
-    $Passwords | ForEach-Object {
-        $Password = $_
-
-        If ($DS.ValidateCredentials($Account.properties.samaccountname, $Password)) {
-            [PSCustomObject]@{
-                'SamAccountName' = $Account.properties.samaccountname
-                'LDAPPath'       = $Account.path
-                'WeakPassword'   = $True
-            }
-
-            Return
-        }
-    }
-}
-
-#region Find PASSWD_NOTREQD Acconts
 $Domain = 'dc=techsnips,dc=local'
 
-# Save pwnotreq users to txt
 $Params = @{
-    "Properties" = @('name', 'distinguishedname', 'useraccountcontrol', 'objectClass')
-    "LDAPFilter" = '(&(userAccountControl:1.2.840.113556.1.4.803:=32)(!(IsCriticalSystemObject=TRUE)))'
-    "SearchBase" = $Domain
+	"Properties" = @('name', 'distinguishedname', 'useraccountcontrol', 'objectClass')
+	"LDAPFilter" = '(&(userAccountControl:1.2.840.113556.1.4.803:=32)(!(IsCriticalSystemObject=TRUE)))'
+	"SearchBase" = $Domain
 }
 
-$Users = Get-ADUser @Params | Select-Object SamAccountName, Name, UserAccountControl, DistinguishedName
-$Users | Out-GridView
+Get-ADUser @Params | Select-Object SamAccountName, Name, UserAccountControl, DistinguishedName
 
-$Users | Foreach-Object { Set-ADAccountControl $_.Name -PasswordNotRequired $False }
+## Remediate the problem
+$Users | Foreach-Object { Set-ADAccountControl $_.samAccountName -PasswordNotRequired $false }
+
+## Check again
+Get-ADUser @Params | Select-Object SamAccountName, Name, UserAccountControl, DistinguishedName
 #endregion
 
 #region Test Password Strength Function
 # Testing Password Strength in a Function
 # http://www.checkyourlogs.net/?p=38333
 Function Test-DomainPassword {
-    Param (
-        [Parameter(Mandatory)]
-        [String]$Password,
+	Param (
+		[Parameter(Mandatory)]
+		[String]$Password,
 
-        [Parameter(Mandatory)]
-        [String]$Account,
+		[Parameter(Mandatory, ValueFromPipeline)]
+		[Microsoft.ActiveDirectory.Management.ADUser]$UserAccount,
 
-        [Microsoft.ActiveDirectory.Management.ADEntity]$PasswordPolicy = (Get-ADDefaultDomainPasswordPolicy -ErrorAction SilentlyContinue)
-    )
+		[Parameter(Mandatory)]
+		[Microsoft.ActiveDirectory.Management.ADEntity]$PasswordPolicy
+	)
 
-    Process {
-        $Account = Get-ADUser $Account
+	Process {
+		$output = @{
+			'Result'        = $true
+			'FailureReason' = $null
+		}
+		if ($Password.Length -LT $PasswordPolicy.MinPasswordLength) {
+			$output.FailureReason = "Password under minimum password length: $($PasswordPolicy.MinPasswordLength)"
+			$output.Result = $false
+		} elseif (($UserAccount.SamAccountName) -And ($Password -match $UserAccount.SamAccountName)) {
+			$output.FailureReason = "Password matches SamAccountName"
+			$output.Result = $false
+		} elseif ($Password -in $UserAccount.samAccountName) {
+			$output.FailureReason = 'Password in samAccountName'
+			$output.Result = $false
+		} elseif ($PasswordPolicy.ComplexityEnabled -eq $true) {
+			if (-not ($Password -cmatch "[A-Z\p{Lu}\s]" -And ($Password -cmatch "[a-z\p{Ll}\s]") -And ($Password -match "[\d]") -And ($Password -match "[^\w]"))) {
+				$output.FailureReason = 'Password does not meet complexity requirements.'
+				$output.Result = $false
+			}
+		}
+		[pscustomobject]$output
+	}
+}
 
-        If ($Account) {
-            If ($Password.Length -LT $PasswordPolicy.MinPasswordLength) {
-                Write-Warning "Password under minimum password length: $($PasswordPolicy.MinPasswordLength)"
-                Return $False
-            }
-
-            If (($Account.SamAccountName) -And ($Password -match $Account.SamAccountName)) {
-                Write-Warning "Password matches SamAccountName"
-                Return $False
-            }
-
-            If ($Account.DisplayName) {
-                $tokens = ($Account.DisplayName).Split(",.-,_ #`t")
-
-                Foreach ($token In $tokens) {
-                    If (($token) -And ($Password -Match "$token")) {
-                        Write-Warning "Username is contained within Password"
-                        Return $False
-                    }
-                }
-            }
-
-            If ($PasswordPolicy.ComplexityEnabled -eq $true) {
-                If (
-                    ($Password -cmatch "[A-Z\p{Lu}\s]") `
-                    -And ($Password -cmatch "[a-z\p{Ll}\s]") `
-                    -And ($Password -match "[\d]") `
-                    -And ($Password -match "[^\w]")
-                ) {
-                    Return $True
-                }
-            } Else {
-                Return $False
-            }
-        }
-    }
+## Example usage
+$pwPolicy = Get-ADDefaultDomainPasswordPolicy -ErrorAction 'SilentlyContinue'
+Get-AdUser -Filter '*' | ForEach-Object {
+	$userAccount = $_
+	$passwords | ForEach-Object {
+		$userAccount | Test-DomainPassword -PasswordPolicy $pwPolicy -Password $_
+	}
 }
 #endregion

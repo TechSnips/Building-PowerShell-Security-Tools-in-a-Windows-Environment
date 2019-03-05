@@ -64,7 +64,7 @@ $now = Get-Date -UFormat '%m-%d-%y %H:%M'
 } | Export-Csv -Path $monitorStateFilePath -NoTypeInformation -Append
 
 ## Compare and report
-if (Compare-Object -ReferenceObject $previousMembers -DifferenceObject $currentMembers) {
+if (-not (Compare-Object -ReferenceObject $previousMembers -DifferenceObject $currentMembers)) {
 	|Action|
 }
 '@

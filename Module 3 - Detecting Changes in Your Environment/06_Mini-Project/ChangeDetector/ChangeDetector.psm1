@@ -107,7 +107,7 @@ if (Compare-Object -ReferenceObject $previousMembers -DifferenceObject $currentM
 	if ($Schedule.DayOfWeek) {
 		$params.DayOfWeek = $Schedule.DayOfWeek
 	}
-	New-RecurringScheduledTask @params
+	New-PsScheduledTask @params
 }
 
 function New-AdGroupMembershipMonitor {
@@ -203,7 +203,7 @@ if (Compare-Object -ReferenceObject $previousMembers -DifferenceObject $currentM
 	if ($Schedule.DayOfWeek) {
 		$params.DayOfWeek = $Schedule.DayOfWeek
 	}
-	New-RecurringScheduledTask @params
+	New-PsScheduledTask @params
 	
 }
 
@@ -306,7 +306,7 @@ if ($previousLoginTime -ne $lastLoginTime) {
 	if ($Schedule.DayOfWeek) {
 		$params.DayOfWeek = $Schedule.DayOfWeek
 	}
-	New-RecurringScheduledTask @params
+	New-PsScheduledTask @params
 }
 
 function New-FileMonitor {
@@ -451,44 +451,17 @@ function Get-MonitorSchedule {
 	
 }
 
-function New-RecurringScheduledTask {
-	<#
-		.SYNOPSIS
-			This function creates a scheduled task on a remote server that executes a PowerShell script
-	
-		.EXAMPLE
-			PS> New-RecurringScheduledTask -ComputerName SRV1 -ScheduledTaskName 'Foo' -Scriptblock { Write-Host 'foo' } -Interval 'Daily' -Time '12:00'
-
-		.PARAMETER ComputerName
-			 A mandatory string parameter representing the remote computer to create the scheduled task on.
-		.PARAMETER ScheduledTaskName
-			 A mandatory string parameter representing the name of the scheduled task to create.
-		.PARAMETER Scriptblock
-			 A mandatory scriptblock parameter representing the PowerShell code which will be used to create a PowerShell
-			 script on $ComputerName.
-		.PARAMETER Interval
-			 A mandatory string parameter representing the time interval to run a scheduled task. This parameter is limited
-			 to either Daily or Weekly.
-		.PARAMETER Time
-			 A mandatory string parameter representing the time to run a scheduled task at.
-		.PARAMETER DayOfWeek
-			 An optional string parameter representing the day of the week to run a weekly scheduled task at.
-			 Options are 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'.
-		.PARAMETER RunAsCredential
-			 An optional pscredential parameter representing the user to run the scheduled task under. If this
-			 parameter is not used, the scheduled task will run under SYSTEM.
-	
-	#>
+function New-PsScheduledTask {
 	[OutputType([void])]
 	[CmdletBinding()]
 	param
 	(
 		[Parameter(Mandatory)]
-		[ValidateNotNullOrEmpty()]
-		[string]$ComputerName,
-
-		[Parameter(Mandatory)]
 		[string]$Name,
+
+		[Parameter()]
+		[ValidateNotNullOrEmpty()]
+		[string]$ComputerName = $script:monitorServer,
 
 		[Parameter(Mandatory)]
 		[ValidateNotNullOrEmpty()]
@@ -496,7 +469,7 @@ function New-RecurringScheduledTask {
 
 		[Parameter(Mandatory)]
 		[ValidateNotNullOrEmpty()]
-		[ValidateSet('Daily', 'Weekly')] ## This can be other intervals
+		[ValidateSet('Daily', 'Weekly', 'Once')] ## This can be other intervals but we're limiting to just these for now
 		[string]$Interval,
 
 		[Parameter(Mandatory)]
@@ -525,7 +498,8 @@ function New-RecurringScheduledTask {
 		Set-Content -Path $scriptPath -Value $command
 
 		## Create the scheduled task
-		schtasks /create /SC $interval /ST $time /TN $taskName /TR "powershell.exe -NonInteractive -NoProfile -File `"$scriptPath`"" /F /RU $taskUser /RL HIGHEST
+		schtasks /create /SC $interval /ST $time /TN `"$taskName`" /TR "powershell.exe -NonInteractive -NoProfile -File `"$scriptPath`"" /F /RU $taskUser /RL HIGHEST
+		
 	}
 
 	$icmParams = @{
@@ -533,10 +507,12 @@ function New-RecurringScheduledTask {
 		ScriptBlock  = $createStartSb
 		ArgumentList = $Name, $Scriptblock.ToString(), $Interval, $Time
 	}
-	if ($PSBoundParameters.ContainsKey('Credential')) {
+	if ($PSBoundParameters.ContainsKey('RunAsCredential')) {
 		$icmParams.ArgumentList += $RunAsCredential.UserName	
 	} else {
 		$icmParams.ArgumentList += 'SYSTEM'
 	}
+	
 	Invoke-Command @icmParams
+	
 }

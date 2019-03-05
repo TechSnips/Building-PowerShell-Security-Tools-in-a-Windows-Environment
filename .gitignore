@@ -1,9 +1,9 @@
-
 *.trec
 *.tscproj
 *.mp4
 *.pptx
-Module 1 - Managing the Windows Event Log/slides.cmproj/docPrefs
 *.plist
 *.pptx
 .DS_Store
+*.mov
+*.cmproj*
