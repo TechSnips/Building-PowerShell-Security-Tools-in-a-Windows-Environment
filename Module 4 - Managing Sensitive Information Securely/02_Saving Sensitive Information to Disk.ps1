@@ -16,6 +16,7 @@ $CertParams = @{
 	'KeyLength'         = 2048
 	'KeyAlgorithm'      = 'RSA'
 	'NotAfter'          = (Get-Date).AddYears(1000)
+	'Provider'          =  'Microsoft Enhanced Cryptographic Provider v1.0'
 }
 
 New-SelfSignedCertificate @CertParams
@@ -33,6 +34,10 @@ $Protected | Get-CMSMessage
 
 # Read out the content
 $Protected | Unprotect-CmsMessage
+
+$Protected | Set-Content -Path 'C:\MySecretString.txt'
+
+Get-Content -Path 'C:\MySecretString.txt' -Raw | Unprotect-CmsMessage
 #endregion
 
 #region Import/Export CLIXML
@@ -64,7 +69,7 @@ $SecureString = Get-Content -Path $Path | ConvertTo-SecureString
 [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR((($SecureString))))
 #endregion
 
-#region Using AES Key
+#region Using AES Key. Works across machines
 $AESKeyPath = "$($Env:USERPROFILE)\Desktop\aes.key"
 $PassPath   = "$($Env:USERPROFILE)\Desktop\password.txt"
 
@@ -78,12 +83,76 @@ $Key = [System.Byte[]]::New(32)
 $Key | Out-File $AESKeyPath
 
 # Get the Password and encrypt with the AES Key
-(Get-Credential).Password | ConvertFrom-SecureString -Key (Get-Content $AESKeyPath) | Set-Content -Path $PassPath
-Get-Content -Path $PassPath | ConvertTo-SecureString -Key (Get-Content -Path $AESKeyPath)
+$enc = ConvertTo-SecureString -String 'foo' -AsPlainText -Force | ConvertFrom-SecureString -Key (Get-Content $AESKeyPath)
+$secString = $enc | ConvertTo-SecureString -Key (Get-Content -Path $AESKeyPath)
 
 # Retrieve Password
-$SecurePassword = Get-Content $PassPath | ConvertTo-SecureString -Key (Get-Content -Path $AESKeyPath)
+$SecurePassword = $enc | ConvertTo-SecureString -Key (Get-Content -Path $AESKeyPath)
 $BSTR           = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePassword)
 $PlainPassword  = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
 $PlainPassword
+
+function New-KeyFile {
+	[OutputType('void')]
+	[CmdletBinding()]
+	param
+	(
+		[Parameter(Mandatory)]
+		[ValidateNotNullOrEmpty()]
+		[string]$Path
+	)
+
+	$ErrorActionPreference = 'Stop'
+    
+	$Key = [System.Byte[]]::New(32)
+	[Security.Cryptography.RNGCryptoServiceProvider]::Create().GetBytes($Key)
+	$Key | Out-File $Path
+}
+
+function Protect-String {
+	[OutputType('string')]
+	[CmdletBinding()]
+	param
+	(
+		[Parameter(Mandatory)]
+		[ValidateNotNullOrEmpty()]
+		[string]$String,
+
+		[Parameter(Mandatory)]
+		[ValidateNotNullOrEmpty()]
+		[string]$KeyFile
+	)
+
+	$ErrorActionPreference = 'Stop'
+    
+	$key = Get-Content -Path $KeyFile
+	$enc = ConvertTo-SecureString -String $String -AsPlainText -Force | ConvertFrom-SecureString -Key $key
+	$enc | ConvertTo-SecureString -Key $key
+}
+
+function Unprotect-String {
+	[OutputType('string')]
+	[CmdletBinding()]
+	param
+	(
+		[Parameter(Mandatory, ValueFromPipeline)]
+		[ValidateNotNullOrEmpty()]
+		[securestring]$SecureString,
+
+		[Parameter(Mandatory)]
+		[ValidateNotNullOrEmpty()]
+		[string]$KeyFile
+	)
+
+	$ErrorActionPreference = 'Stop'
+    
+	$key = Get-Content -Path $KeyFile
+	$BSTR           = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecureString)
+	[System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
+}
+
+#endregion
+
+#region Using passwords in scripts
+
 #endregion
